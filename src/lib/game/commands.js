@@ -487,10 +487,11 @@ function cmdSpike(gs) {
     type: EntryType.Success,
   }];
 
-  if (gs.player.spikeCount >= targetCount) {
+  const rivalExtracted = (gs.rival && gs.rival.extractedTargets) || 0;
+  if (gs.player.spikeCount + rivalExtracted >= targetCount) {
     gs.score += 500;
     gs.won = true;
-    entries.push({ text: 'ALL TARGETS SPIKED! [+500 BONUS]', type: EntryType.Success });
+    entries.push({ text: 'ALL TARGETS ACCOUNTED FOR! [+500 BONUS]', type: EntryType.Success });
   }
 
   return entries;
@@ -604,8 +605,8 @@ function postTurnEffects(gs) {
     entries.push({ text: msg, type: EntryType.Warning });
   }
 
-  // Rival extracted too many targets — player loses
-  if (gs.rival && gs.rival.extractedTargets >= 2) {
+  // Rival extracted too many targets — player loses (only if not already won)
+  if (!gs.won && gs.rival && gs.rival.extractedTargets >= 2) {
     gs.killed = true;
     gs.lost = true;
     entries.push({ text: '>> RIVAL HACKER has compromised too many targets! Network lost.', type: EntryType.Error });
