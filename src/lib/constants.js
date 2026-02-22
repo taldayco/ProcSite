@@ -10,22 +10,45 @@ export const DECODE_DURATION = 1500;
 export const FADE_DURATION = 500;
 
 export const PALETTES = [
-  [0, 255, 70],    // matrix green
-  [0, 220, 255],   // cyan
-  [255, 176, 0],   // amber
-  [255, 0, 200],   // magenta
+  [0, 255, 70], // matrix green
+  [0, 220, 255], // cyan
+  [255, 176, 0], // amber
+  [255, 0, 200], // magenta
   [220, 220, 220], // white
-  [255, 50, 50],   // red
+  [255, 50, 50], // red
 ];
 
 export const COLOR_MORPH_DURATION = 1.5;
 export const AGE_BRIGHTNESS_BOOST = 0.15;
 export const AGE_MATURITY = 3.0;
 
-export const FONTS = ['monospace', 'Courier New', 'Consolas', 'Monaco', 'Lucida Console'];
+export const FONTS = [
+  "monospace",
+  "Courier New",
+  "Consolas",
+  "Monaco",
+  "Lucida Console",
+];
 
 export const WORDS = [
-  'NEURAL', 'CIPHER', 'GLITCH', 'VOID', 'MATRIX', 'DAEMON', 'KERNEL',
-  'BINARY', 'FLUX', 'PULSE', 'VERTEX', 'PROXY', 'SOCKET', 'BREACH',
-  'SPAWN', 'VECTOR', 'QUBIT', 'CACHE', 'EPOCH', 'SHARD',
+  "NEURAL",
+  "CIPHER",
+  "VOID",
+  "DEATH",
+  "DAEMON",
+  "KERNEL",
+  "BINARY",
+  "FLUX",
+  "PULSE",
+  "VERTEX",
+  "PROXY",
+  "SOCKET",
+  "BREACH",
+  "SPAWN",
+  "VECTOR",
+  "QUBIT",
+  "CACHE",
+  "EPOCH",
+  "SHARD",
+  "EGO",
 ];

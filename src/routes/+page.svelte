@@ -7,6 +7,7 @@ import { measureGrid, sizeCanvas } from "$lib/renderer.js";
 import { pruneHeaders, fadeAllHeaders, spawnHeader, renderHeaders } from "$lib/headers.js";
 import { randomMode } from "$lib/modes/index.js";
 import { createEffectsState, updateCursor, clearCursor, spawnRipple, updateEffects } from "$lib/effects.js";
+import { randomize } from "$lib/randomize.js";
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -103,36 +104,13 @@ function animate(timestamp) {
 }
 
 function randomize_direction() {
-  const now = performance.now();
-  if (now - lastDirectionChange < 300) return;
-  lastDirectionChange = now;
-
-  angle = Math.random() * 2 * Math.PI;
-  dx = Math.cos(angle);
-  dy = Math.sin(angle);
-
-  randomizeNoise(noise);
-
-  // Smooth color morph instead of instant switch
-  colorMorph = createColorMorph(baseColor, randomPalette(), COLOR_MORPH_DURATION);
-  fontFamily = randomFont();
-
-  const grid = measureGrid(ctx, fontFamily);
-  cols = grid.cols;
-  rows = grid.rows;
-  charWidth = grid.charWidth;
-  cellW = grid.cellW;
-  cellH = grid.cellH;
-  sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
-  ctx.font = `${FONT_SIZE}px ${fontFamily}`;
-  ctx.textBaseline = 'top';
-
-  // Switch to a new random mode
-  currentMode = randomMode(currentMode.name);
-  modeState = currentMode.init(ctx, noise, cols, rows, colorStrings, fontFamily);
-
-  fadeAllHeaders(activeHeaders, now);
-  activeHeaders.push(spawnHeader(ctx, canvas.width, canvas.height, fontFamily));
+  const state = randomize({
+    lastDirectionChange, angle, dx, dy, noise, baseColor, colorMorph,
+    fontFamily, ctx, canvas, cols, rows, charWidth, cellW, cellH,
+    colorStrings, currentMode, modeState, activeHeaders
+  });
+  ({ lastDirectionChange, angle, dx, dy, colorMorph, fontFamily,
+    cols, rows, charWidth, cellW, cellH, currentMode, modeState } = state);
 }
 
 /** @param {MouseEvent} e */
