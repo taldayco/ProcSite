@@ -8,6 +8,7 @@ import { pruneHeaders, fadeAllHeaders, spawnHeader, renderHeaders } from "$lib/h
 import { randomMode } from "$lib/modes/index.js";
 import { createEffectsState, updateCursor, clearCursor, spawnRipple, updateEffects } from "$lib/effects.js";
 import { randomize } from "$lib/randomize.js";
+import Intro from "$lib/Intro.svelte";
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -181,6 +182,8 @@ onMount(() => {
   ontouchstart={handle_touchstart}
   ontouchmove={handle_touchmove}
 ></canvas>
+
+<Intro {baseColor} />
 
 <style>
 :global(body) {
