@@ -1,9 +1,11 @@
 <script>
+  import { ensureAudio, initBeats, addLayer, playKeystroke, playBlink } from './audio/index.js';
+
   /** @type {{ baseColor: number[], ondone?: () => void, onkill?: () => void }} */
   let { baseColor, ondone = () => {}, onkill = () => {} } = $props();
 
-  // Animation stage: 'hidden' | 'fadein' | 'intro' | 'dialogue'
-  let stage = $state('hidden');
+  // Animation stage: 'connect' | 'hidden' | 'fadein' | 'intro' | 'dialogue'
+  let stage = $state('connect');
 
   let eyesClosed = $state(true);
   let typedText = $state('');
@@ -12,6 +14,8 @@
   let currentButtons = $state([]);
   /** @type {{ text: string, color: string } | null} */
   let titleLabel = $state(null);
+
+  let clickCount = 0;
 
   const CLOSED_FACE = '(✿◡‿◡)';
   const OPEN_FACE = '(✿◕‿◕)';
@@ -45,7 +49,7 @@
     }],
     ['hey_response', {
       id: 'hey_response',
-      text: 'I need you to do something bad for me.',
+      text: 'I need you to do me a favor.',
       buttons: [
         { label: 'sure', next: 'sure_stub' },
         { label: 'fuck you', next: 'fu_stub' },
@@ -173,6 +177,7 @@
   async function typeOut(text, setter, speed = 70) {
     for (let i = 0; i <= text.length; i++) {
       setter(text.slice(0, i));
+      if (i > 0) playKeystroke();
       await wait(speed);
     }
   }
@@ -189,8 +194,10 @@
     // Blink
     if (node.blink) {
       eyesClosed = true;
+      playBlink();
       await wait(150);
       eyesClosed = false;
+      playBlink();
       await wait(250);
     }
 
@@ -233,13 +240,26 @@
       if (node.death) {
         onkill();
       } else {
+        addLayer('bass');
         ondone();
       }
     }
   }
 
+  function handleConnect() {
+    ensureAudio();
+    initBeats(); // fire-and-forget: start loading Strudel + samples
+    runSequence();
+  }
+
   /** @param {string} nextNodeId */
   async function handleButtonClick(nextNodeId) {
+    clickCount++;
+    if (clickCount === 1) {
+      addLayer('kick');
+    } else if (clickCount === 2) {
+      addLayer('hat');
+    }
     // Fade out buttons
     buttonsVisible = currentButtons.map(() => false);
     currentButtons = [];
@@ -249,7 +269,9 @@
   }
 
   async function runSequence() {
-    // 1. Fade in
+    // 1. Fade out connect button, then fade in
+    stage = 'hidden';
+    await wait(500);
     stage = 'fadein';
     await wait(500);
 
@@ -266,8 +288,10 @@
     const blinks = 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < blinks; i++) {
       eyesClosed = true;
+      playBlink();
       await wait(150);
       eyesClosed = false;
+      playBlink();
       await wait(250);
     }
 
@@ -281,13 +305,25 @@
     await playNode('initial_buttons');
   }
 
-  $effect(() => {
-    runSequence();
-  });
 </script>
 
 <div class="intro-overlay" class:visible={stage !== 'hidden'}>
   <div class="intro-container">
+    {#if stage === 'connect'}
+      <button
+        class="intro-btn btn-visible"
+        style="
+          color: {colorRgb};
+          border-color: {colorDim};
+          --glow-color: {colorGlow};
+          --base-color: {colorRgb};
+        "
+        onclick={handleConnect}
+      >
+        [connect to network]
+      </button>
+    {/if}
+
     {#if stage === 'intro' || stage === 'dialogue'}
       {#if titleLabel}
         <div class="title-label" style="color: {titleLabel.color};">{titleLabel.text}</div>

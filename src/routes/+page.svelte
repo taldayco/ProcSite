@@ -10,6 +10,7 @@ import { createEffectsState, updateCursor, clearCursor, spawnRipple, updateEffec
 import { randomize } from "$lib/randomize.js";
 import Intro from "$lib/Intro.svelte";
 import Minigame from "$lib/Minigame.svelte";
+import { transitionDown, resetToKick, playDeathSynth, addLayer } from "$lib/audio/index.js";
 
 let phase = $state('intro');
 let carryScore = $state(0);
@@ -198,8 +199,10 @@ function animate(timestamp) {
         }
         // Wait for fade to complete before clearing
         if (performance.now() - lastHeader.fadeStartTime >= FADE_DURATION) {
+          addLayer('synth');
           clearProgress = 0;
           phase = 'clearing';
+          transitionDown().then(() => resetToKick());
         }
       }
     }
@@ -304,6 +307,7 @@ function kill_effect() {
   fadeAllHeaders(activeHeaders, now);
   activeHeaders.push(spawnHeaderWithWord(ctx, canvas.width, canvas.height, fontFamily, 'DEATH'));
   killHeaderTime = performance.now();
+  playDeathSynth();
 }
 
 /** @param {MouseEvent} e */
@@ -378,7 +382,7 @@ onMount(() => {
     randomizeFired = 1;
   }} onkill={kill_effect} />
 {:else if phase === 'game'}
-  <Minigame {baseColor} decodedWord={lastDecodedWord} initialScore={carryScore} ondetection={() => randomize_direction({ skipHeaders: true })} onkill={() => { carryScore = 0; kill_effect(); }} onnextlevel={(score) => {
+  <Minigame {baseColor} decodedWord={lastDecodedWord} initialScore={carryScore} ondetection={() => randomize_direction({ skipHeaders: true })} onkill={() => { carryScore = 0; transitionDown(); kill_effect(); }} onnextlevel={(score) => {
     carryScore = score;
     phase = 'decoding';
     randomize_direction();

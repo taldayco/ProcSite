@@ -4,6 +4,7 @@
   import { getNode } from './game/network.js';
   import { getModifier } from './game/modifiers.js';
   import Minimap from './Minimap.svelte';
+  import { playKeystroke, playSubmit, playBackspace, updateBeatsForDetection, transitionDown, resetToKick, stopBeats, addLayer } from './audio/index.js';
 
   /** @type {{ baseColor: number[], decodedWord?: string, initialScore?: number, ondetection?: () => void, onkill?: () => void, onnextlevel?: (score: number) => void }} */
   let { baseColor, decodedWord = '', initialScore = 0, ondetection, onkill, onnextlevel } = $props();
@@ -92,8 +93,10 @@
     if (entries.length === 0) return;
 
     if (gs.killed && onkill) {
+      transitionDown();
       onkill();
     } else if (gs.player.detection > prevDetection && ondetection) {
+      updateBeatsForDetection(gs.player.detection);
       ondetection();
     }
 
@@ -103,10 +106,12 @@
 
     if ((gs.won || gs.lost) && !gs.killed) {
       if (gs.won && onnextlevel) {
+        transitionDown();
         onnextlevel(gs.score);
       } else {
         const gameOverEntries = buildGameOverEntries(gs);
         history = [...history, ...gameOverEntries];
+        stopBeats();
         phase = 'gameover';
       }
     }
@@ -122,6 +127,7 @@
     bootLines = [];
     booted = false;
     phase = 'connecting';
+    resetToKick();
   }
 
   function focusInput() {
@@ -132,7 +138,12 @@
   function handleInputKeydown(e) {
     e.stopPropagation();
     if (e.key === 'Enter') {
+      playSubmit();
       submitCommand();
+    } else if (e.key === 'Backspace') {
+      playBackspace();
+    } else if (e.key.length === 1) {
+      playKeystroke();
     }
   }
 
@@ -145,10 +156,24 @@
     }
   });
 
+  // Time-based layer buildup during active phase
   $effect(() => {
-    if (phase === 'active') {
-      tick().then(() => realInputEl?.focus());
-    }
+    if (phase !== 'active') return;
+
+    tick().then(() => realInputEl?.focus());
+
+    const layerSchedule = [
+      { delay: 5000,  layer: 'hat' },
+      { delay: 12000, layer: 'bass' },
+      { delay: 25000, layer: 'synth' },
+      { delay: 40000, layer: 'arp' },
+    ];
+
+    const timers = layerSchedule.map(({ delay, layer }) =>
+      setTimeout(() => addLayer(layer), delay)
+    );
+
+    return () => timers.forEach(clearTimeout);
   });
 
   /**
