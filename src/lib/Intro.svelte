@@ -117,25 +117,25 @@
     ['who_3', {
       id: 'who_3',
       eyeState: 'closed',
-      text: ":P.",
+      text: ":P",
       next: 'who_4',
     }],
     ['who_4', {
       id: 'who_4',
       eyeState: 'closed',
-      text: "I heard you're good with your hands.",
+      text: "I wanted to show it to you, given your reputation.",
       next: 'who_5',
     }],
     ['who_5', {
       id: 'who_5',
       eyeState: 'open',
-      text: 'That was important back in the day.',
+      text: 'Times have changed.',
       next: 'who_6',
     }],
     ['who_6', {
       id: 'who_6',
       eyeState: 'open',
-      text: 'But, if you want to stay in this business, you have to get with the times.',
+      text: 'So too do our methods.',
       next: 'who_7',
     }],
     ['who_7', {
@@ -153,7 +153,7 @@
     ['who_9', {
       id: 'who_9',
       eyeState: 'open',
-      text: "So, I'm going to show you something cool in exchange for a small favor from you.",
+      text: "So, I'm going to show you something cool.",
       next: 'who_10',
     }],
     ['who_10', {
@@ -163,7 +163,7 @@
     }],
     ['who_11', {
       id: 'who_11',
-      text: 'lol.',
+      text: 'lol',
     }],
 
   ]);
