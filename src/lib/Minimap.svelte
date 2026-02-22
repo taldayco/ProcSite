@@ -11,6 +11,147 @@
   const SIZE = 200;
   const PAD = 20;
   const NODE_R = 8;
+  const EDGE_THRESHOLD = 6;
+  const MIN_SIZE = 120;
+  const MAX_SIZE = 500;
+  const MIN_ZOOM = 0.5;
+  const MAX_ZOOM = 3.0;
+
+  // Reactive minimap dimensions
+  let mapWidth = $state(200);
+  let mapHeight = $state(200);
+
+  // Pan state
+  let viewX = $state(0);
+  let viewY = $state(0);
+
+  // Zoom state
+  let zoom = $state(1.0);
+  let viewW = $derived(SIZE / zoom);
+  let viewH = $derived(SIZE / zoom);
+
+  // Interaction state
+  let resizing = $state(false);
+  let resizeEdges = $state({ left: false, bottom: false });
+  let panning = $state(false);
+  let panStart = { x: 0, y: 0, viewX: 0, viewY: 0 };
+  let resizeStart = { x: 0, y: 0, w: 0, h: 0 };
+
+  // Cursor state
+  let cursorStyle = $state('grab');
+
+  /** @type {HTMLDivElement} */
+  let containerEl;
+
+  /**
+   * Detect which edges the pointer is near.
+   * Since minimap is anchored top-right, only left and bottom edges are draggable.
+   * @param {PointerEvent} e
+   * @returns {{ left: boolean, bottom: boolean }}
+   */
+  function detectEdges(e) {
+    if (!containerEl) return { left: false, bottom: false };
+    const rect = containerEl.getBoundingClientRect();
+    const left = e.clientX - rect.left < EDGE_THRESHOLD;
+    const bottom = rect.bottom - e.clientY < EDGE_THRESHOLD;
+    return { left, bottom };
+  }
+
+  /**
+   * Get cursor for edge state.
+   * @param {{ left: boolean, bottom: boolean }} edges
+   * @returns {string}
+   */
+  function edgeCursor(edges) {
+    if (edges.left && edges.bottom) return 'nesw-resize';
+    if (edges.left) return 'ew-resize';
+    if (edges.bottom) return 'ns-resize';
+    return '';
+  }
+
+  /** @param {PointerEvent} e */
+  function onPointerDown(e) {
+    const edges = detectEdges(e);
+    if (edges.left || edges.bottom) {
+      // Start resize
+      resizing = true;
+      resizeEdges = edges;
+      resizeStart = { x: e.clientX, y: e.clientY, w: mapWidth, h: mapHeight };
+      cursorStyle = edgeCursor(edges);
+      e.preventDefault();
+    } else {
+      // Start pan
+      panning = true;
+      panStart = { x: e.clientX, y: e.clientY, viewX, viewY };
+      cursorStyle = 'grabbing';
+      e.preventDefault();
+    }
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  }
+
+  /** @param {PointerEvent} e */
+  function onPointerMove(e) {
+    if (resizing) {
+      if (resizeEdges.left) {
+        // Dragging left edge left = wider (anchor is right side)
+        const dx = resizeStart.x - e.clientX;
+        mapWidth = Math.max(MIN_SIZE, Math.min(MAX_SIZE, resizeStart.w + dx));
+      }
+      if (resizeEdges.bottom) {
+        const dy = e.clientY - resizeStart.y;
+        mapHeight = Math.max(MIN_SIZE, Math.min(MAX_SIZE, resizeStart.h + dy));
+      }
+    } else if (panning) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      // Convert screen pixels to viewBox units
+      const scaleX = viewW / mapWidth;
+      const scaleY = viewH / mapHeight;
+      viewX = panStart.viewX - dx * scaleX;
+      viewY = panStart.viewY - dy * scaleY;
+    }
+  }
+
+  function onPointerUp() {
+    resizing = false;
+    panning = false;
+    cursorStyle = 'grab';
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+  }
+
+  /** @param {PointerEvent} e */
+  function onContainerMove(e) {
+    if (resizing || panning) return;
+    const edges = detectEdges(e);
+    const ec = edgeCursor(edges);
+    cursorStyle = ec || 'grab';
+  }
+
+  /** @param {WheelEvent} e */
+  function onWheel(e) {
+    e.preventDefault();
+    const rect = containerEl.getBoundingClientRect();
+    // Pointer position in container (0..1)
+    const px = (e.clientX - rect.left) / rect.width;
+    const py = (e.clientY - rect.top) / rect.height;
+
+    // Point under cursor in viewBox coords before zoom
+    const pointX = viewX + px * viewW;
+    const pointY = viewY + py * viewH;
+
+    // Adjust zoom
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom * delta));
+    const newW = SIZE / newZoom;
+    const newH = SIZE / newZoom;
+
+    // Adjust viewX/viewY so pointX/pointY stays under cursor
+    viewX = pointX - px * newW;
+    viewY = pointY - py * newH;
+    zoom = newZoom;
+  }
 
   /**
    * Force-directed layout positions, keyed by node id.
@@ -217,11 +358,22 @@
   }
 </script>
 
-<div class="minimap-container" style:--minimap-border-color={colorDim}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="minimap-container"
+  style:--minimap-border-color={colorDim}
+  style:width="{mapWidth}px"
+  style:height="{mapHeight}px"
+  style:cursor={cursorStyle}
+  bind:this={containerEl}
+  onpointerdown={onPointerDown}
+  onpointermove={onContainerMove}
+  onwheel={onWheel}
+>
   <svg
-    width={SIZE}
-    height={SIZE}
-    viewBox="0 0 {SIZE} {SIZE}"
+    width={mapWidth}
+    height={mapHeight}
+    viewBox="{viewX} {viewY} {viewW} {viewH}"
     xmlns="http://www.w3.org/2000/svg"
   >
     <!-- Edges between discovered nodes -->
@@ -334,15 +486,14 @@
     position: fixed;
     top: 1rem;
     right: 1rem;
-    width: 200px;
-    height: 200px;
     z-index: 210;
-    pointer-events: none;
     background: rgba(0, 0, 0, 0.85);
     border: 1px solid var(--minimap-border-color);
     padding: 4px;
     box-shadow: 0 0 8px var(--minimap-border-color);
     animation: minimap-expand 0.5s ease-out 0.6s both;
+    user-select: none;
+    touch-action: none;
   }
 
   @keyframes minimap-expand {
