@@ -87,7 +87,7 @@
     history = [...history, ...entries];
 
     if ((gs.won || gs.lost) && !gs.killed) {
-      if (gs.won && gs.devCheat && onnextlevel) {
+      if (gs.won && onnextlevel) {
         onnextlevel();
       } else {
         const gameOverEntries = buildGameOverEntries(gs);
