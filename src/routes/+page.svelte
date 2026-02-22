@@ -55,7 +55,7 @@ let colorStrings = [];
 function buildColorStrings() {
   colorStrings = [];
   for (let i = 0; i < BRIGHTNESS_LEVELS; i++) {
-    const b = (i + 0.5) / BRIGHTNESS_LEVELS;
+    const b = 0.15 + ((i + 0.5) / BRIGHTNESS_LEVELS) * 0.40; // brightness range: min 15%, max 75%
     colorStrings.push(`rgb(${Math.floor(BASE_COLOR[0] * b)},${Math.floor(BASE_COLOR[1] * b)},${Math.floor(BASE_COLOR[2] * b)})`);
   }
 }
@@ -178,6 +178,7 @@ function animate(timestamp) {
   animFrameId = requestAnimationFrame(animate);
 }
 
+const noiseTypes = Object.values(FastNoiseLite.NoiseType);
 const distanceFunctions = Object.values(FastNoiseLite.CellularDistanceFunction);
 const returnTypes = Object.values(FastNoiseLite.CellularReturnType);
 
@@ -188,9 +189,13 @@ function randomize_direction() {
   angle = Math.random() * 2 * Math.PI;
   dx = Math.cos(angle);
   dy = Math.sin(angle);
-  noise.SetCellularDistanceFunction(distanceFunctions[Math.floor(Math.random() * distanceFunctions.length)]);
-  noise.SetCellularReturnType(returnTypes[Math.floor(Math.random() * returnTypes.length)]);
-  noise.SetCellularJitter(0.2 + Math.random() * 1.3);
+  const noiseType = noiseTypes[Math.floor(Math.random() * noiseTypes.length)];
+  noise.SetNoiseType(noiseType);
+  if (noiseType === 'Cellular') {
+    noise.SetCellularDistanceFunction(distanceFunctions[Math.floor(Math.random() * distanceFunctions.length)]);
+    noise.SetCellularReturnType(returnTypes[Math.floor(Math.random() * returnTypes.length)]);
+    noise.SetCellularJitter(0.2 + Math.random() * 1.3);
+  }
 
   // Randomize color and font
   BASE_COLOR = PALETTES[Math.floor(Math.random() * PALETTES.length)];
