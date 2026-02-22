@@ -1,94 +1,60 @@
 <script>
 import { onMount } from "svelte";
-import FastNoiseLite from "fastnoise-lite";
+import { SPEED, FONT_SIZE, GAP } from "$lib/constants.js";
+import { createCharArrays } from "$lib/characters.js";
+import { buildColorStrings, randomPalette, randomFont } from "$lib/palette.js";
+import { createNoise, randomizeNoise } from "$lib/noise.js";
+import { measureGrid, sizeCanvas, renderGrid } from "$lib/renderer.js";
+import { pruneHeaders, fadeAllHeaders, spawnHeader, renderHeaders } from "$lib/headers.js";
 
+/** @type {HTMLCanvasElement} */
 let canvas;
 
-const SPEED = 30;
-const NOISE_SCALE = 4;
-const FONT_SIZE = 14;
-const BRIGHTNESS_LEVELS = 16;
-const SHUFFLE_MIN = 0.3;
-const SHUFFLE_MAX = 2.5;
-const GAP = 2;
-
-const PALETTES = [
-  [0, 255, 70],    // matrix green
-  [0, 220, 255],   // cyan
-  [255, 176, 0],   // amber
-  [255, 0, 200],   // magenta
-  [220, 220, 220], // white
-  [255, 50, 50],   // red
-];
-const FONTS = ['monospace', 'Courier New', 'Consolas', 'Monaco', 'Lucida Console'];
-
-const WORDS = ['NEURAL', 'CIPHER', 'GLITCH', 'VOID', 'MATRIX', 'DAEMON', 'KERNEL', 'BINARY', 'FLUX', 'PULSE', 'VERTEX', 'PROXY', 'SOCKET', 'BREACH', 'SPAWN', 'VECTOR', 'QUBIT', 'CACHE', 'EPOCH', 'SHARD'];
-const HEADER_FONT_SIZE = 42;
-const DECODE_DURATION = 1500;
-const FADE_DURATION = 500;
-
-let BASE_COLOR = [0, 255, 70];
-let FONT_FAMILY = 'monospace';
-let activeHeaders = [];
-
-const CHARS =
-  'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン' +
-  'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん' +
-  '∀∂∃∅∇∈∉∋∏∑−∗√∝∞∠∧∨∩∪∫≈≠≡≤≥⊂⊃⊆⊇⊕⊗' +
-  '│┃┄┅┆┇┈┉─━┌┐└┘├┤┬┴┼╋' +
-  '←↑→↓↔↕↖↗↘↙⇐⇒⇑⇓' +
-  '■□▪▫▬▲△▶▷▼▽◀◁◆◇○●◎◐◑' +
-  '⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏' +
-  '₿Ξ¥€£¢₹';
-
-let ctx, noise;
+/** @type {CanvasRenderingContext2D} */
+let ctx;
+/** @type {import('fastnoise-lite').default} */
+let noise;
 let offsetX = 0, offsetY = 0;
 let angle = Math.random() * 2 * Math.PI;
 let dx = Math.cos(angle), dy = Math.sin(angle);
-let lastTime = 0, animFrameId;
+let lastTime = 0;
+/** @type {number} */
+let animFrameId;
 let lastDirectionChange = 0;
 
 let cols = 0, rows = 0, charWidth = 0;
-let charIndices, shuffleTimers;
+/** @type {Uint16Array} */
+let charIndices;
+/** @type {Float32Array} */
+let shuffleTimers;
+/** @type {number[]} */
+let baseColor = [0, 255, 70];
+let fontFamily = 'monospace';
+/** @type {string[]} */
 let colorStrings = [];
-
-function buildColorStrings() {
-  colorStrings = [];
-  for (let i = 0; i < BRIGHTNESS_LEVELS; i++) {
-    const b = 0.15 + ((i + 0.5) / BRIGHTNESS_LEVELS) * 0.40; // brightness range: min 15%, max 75%
-    colorStrings.push(`rgb(${Math.floor(BASE_COLOR[0] * b)},${Math.floor(BASE_COLOR[1] * b)},${Math.floor(BASE_COLOR[2] * b)})`);
-  }
-}
+/** @type {import('$lib/headers.js').Header[]} */
+let activeHeaders = [];
 
 function init() {
-  ctx = canvas.getContext('2d');
-  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-  charWidth = ctx.measureText('W').width;
+  ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+  const grid = measureGrid(ctx, fontFamily);
+  cols = grid.cols;
+  rows = grid.rows;
+  charWidth = grid.charWidth;
 
-  const cellW = charWidth + GAP;
-  const cellH = FONT_SIZE + GAP;
+  sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
 
-  cols = Math.floor(window.innerWidth / cellW);
-  rows = Math.floor(window.innerHeight / cellH);
-
-  canvas.width = Math.ceil(cols * cellW);
-  canvas.height = rows * cellH;
-
-  // Re-set font after canvas resize (resets context state)
-  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+  ctx.font = `${FONT_SIZE}px ${fontFamily}`;
   ctx.textBaseline = 'top';
 
-  const total = cols * rows;
-  charIndices = new Uint16Array(total);
-  shuffleTimers = new Float32Array(total);
-  for (let i = 0; i < total; i++) {
-    charIndices[i] = Math.floor(Math.random() * CHARS.length);
-    shuffleTimers[i] = Math.random() * 2.0;
-  }
+  const arrays = createCharArrays(cols * rows);
+  charIndices = arrays.charIndices;
+  shuffleTimers = arrays.shuffleTimers;
 
-  buildColorStrings();
+  colorStrings = buildColorStrings(baseColor);
 }
 
+/** @param {number} timestamp */
 function animate(timestamp) {
   if (!lastTime) lastTime = timestamp;
   const dt = (timestamp - lastTime) / 1000;
@@ -97,160 +63,51 @@ function animate(timestamp) {
   offsetX += dx * SPEED * dt;
   offsetY += dy * SPEED * dt;
 
-  // Clear
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Bucket characters by brightness level
-  // Each bucket stores [col, row, charIndex, col, row, charIndex, ...]
-  const buckets = new Array(BRIGHTNESS_LEVELS);
-  for (let i = 0; i < BRIGHTNESS_LEVELS; i++) buckets[i] = [];
+  renderGrid(ctx, noise, { cols, rows, charWidth, charIndices, shuffleTimers },
+    { x: offsetX, y: offsetY }, colorStrings, fontFamily, dt);
 
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const idx = row * cols + col;
-
-      // Update shuffle timer
-      shuffleTimers[idx] -= dt;
-      if (shuffleTimers[idx] <= 0) {
-        charIndices[idx] = Math.floor(Math.random() * CHARS.length);
-        shuffleTimers[idx] = SHUFFLE_MIN + Math.random() * (SHUFFLE_MAX - SHUFFLE_MIN);
-      }
-
-      const noiseVal = (noise.GetNoise(col * NOISE_SCALE + offsetX, row * NOISE_SCALE + offsetY) + 1) / 2;
-      const bucket = Math.min(Math.floor(noiseVal * BRIGHTNESS_LEVELS), BRIGHTNESS_LEVELS - 1);
-
-      // Skip darkest bucket
-      if (bucket === 0) continue;
-
-      buckets[bucket].push(col, row, charIndices[idx]);
-    }
-  }
-
-  // Draw per bucket (batch by color)
-  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-  ctx.textBaseline = 'top';
-  for (let b = 1; b < BRIGHTNESS_LEVELS; b++) {
-    const arr = buckets[b];
-    if (arr.length === 0) continue;
-    ctx.fillStyle = colorStrings[b];
-    for (let i = 0; i < arr.length; i += 3) {
-      ctx.fillText(CHARS[arr[i + 2]], arr[i] * (charWidth + GAP), arr[i + 1] * (FONT_SIZE + GAP));
-    }
-  }
-
-  // Render decoding headers
   const now = performance.now();
-  activeHeaders = activeHeaders.filter(h => {
-    if (h.fadeStartTime == null) return true;
-    return (now - h.fadeStartTime) < FADE_DURATION;
-  });
-
-  for (const h of activeHeaders) {
-    const elapsed = now - h.startTime;
-    ctx.save();
-    ctx.font = `${h.fontSize}px ${FONT_FAMILY}`;
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = colorStrings[BRIGHTNESS_LEVELS - 1];
-
-    if (h.fadeStartTime != null) {
-      // Fading phase
-      const fadeElapsed = now - h.fadeStartTime;
-      ctx.globalAlpha = 1 - fadeElapsed / FADE_DURATION;
-    }
-
-    let text = '';
-    for (let i = 0; i < h.word.length; i++) {
-      const resolveAt = (i / h.word.length) * DECODE_DURATION;
-      if (elapsed >= resolveAt) {
-        text += h.word[i];
-      } else {
-        // Scramble: pick a random char, cycling every ~50ms
-        const scrambleIdx = Math.floor(now / 50 + i * 7) % CHARS.length;
-        text += CHARS[scrambleIdx];
-      }
-    }
-
-    ctx.fillText(text, h.x, h.y);
-    ctx.restore();
-  }
+  activeHeaders = pruneHeaders(activeHeaders, now);
+  renderHeaders(ctx, activeHeaders, colorStrings, fontFamily, now);
 
   animFrameId = requestAnimationFrame(animate);
 }
-
-const noiseTypes = Object.values(FastNoiseLite.NoiseType);
-const distanceFunctions = Object.values(FastNoiseLite.CellularDistanceFunction);
-const returnTypes = Object.values(FastNoiseLite.CellularReturnType);
 
 function randomize_direction() {
   const now = performance.now();
   if (now - lastDirectionChange < 300) return;
   lastDirectionChange = now;
+
   angle = Math.random() * 2 * Math.PI;
   dx = Math.cos(angle);
   dy = Math.sin(angle);
-  const noiseType = noiseTypes[Math.floor(Math.random() * noiseTypes.length)];
-  noise.SetNoiseType(noiseType);
-  if (noiseType === 'Cellular') {
-    noise.SetCellularDistanceFunction(distanceFunctions[Math.floor(Math.random() * distanceFunctions.length)]);
-    noise.SetCellularReturnType(returnTypes[Math.floor(Math.random() * returnTypes.length)]);
-    noise.SetCellularJitter(0.2 + Math.random() * 1.3);
-  }
 
-  // Randomize color and font
-  BASE_COLOR = PALETTES[Math.floor(Math.random() * PALETTES.length)];
-  FONT_FAMILY = FONTS[Math.floor(Math.random() * FONTS.length)];
-  buildColorStrings();
+  randomizeNoise(noise);
 
-  // Re-measure and resize grid for new font
-  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-  const newCharWidth = ctx.measureText('W').width;
-  const cellW = newCharWidth + GAP;
-  const cellH = FONT_SIZE + GAP;
-  const newCols = Math.floor(window.innerWidth / cellW);
-  const newRows = Math.floor(window.innerHeight / cellH);
+  baseColor = randomPalette();
+  fontFamily = randomFont();
+  colorStrings = buildColorStrings(baseColor);
 
-  if (newCols !== cols || newRows !== rows) {
-    charWidth = newCharWidth;
-    cols = newCols;
-    rows = newRows;
-    canvas.width = Math.ceil(cols * cellW);
-    canvas.height = rows * cellH;
-    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+  const grid = measureGrid(ctx, fontFamily);
+  if (grid.cols !== cols || grid.rows !== rows) {
+    cols = grid.cols;
+    rows = grid.rows;
+    charWidth = grid.charWidth;
+    sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
+    ctx.font = `${FONT_SIZE}px ${fontFamily}`;
     ctx.textBaseline = 'top';
-    const total = cols * rows;
-    charIndices = new Uint16Array(total);
-    shuffleTimers = new Float32Array(total);
-    for (let i = 0; i < total; i++) {
-      charIndices[i] = Math.floor(Math.random() * CHARS.length);
-      shuffleTimers[i] = Math.random() * 2.0;
-    }
+    const arrays = createCharArrays(cols * rows);
+    charIndices = arrays.charIndices;
+    shuffleTimers = arrays.shuffleTimers;
   } else {
-    charWidth = newCharWidth;
+    charWidth = grid.charWidth;
   }
 
-  // Mark existing headers for fade-out
-  const fadeNow = performance.now();
-  for (const h of activeHeaders) {
-    if (h.fadeStartTime == null) {
-      h.fadeStartTime = fadeNow;
-    }
-  }
-
-  // Spawn a decoding header
-  const word = WORDS[Math.floor(Math.random() * WORDS.length)];
-  ctx.font = `${HEADER_FONT_SIZE}px ${FONT_FAMILY}`;
-  const textWidth = ctx.measureText(word).width;
-  const maxX = Math.max(0, canvas.width - textWidth - 20);
-  const maxY = Math.max(0, canvas.height - HEADER_FONT_SIZE - 20);
-  activeHeaders.push({
-    word,
-    x: 20 + Math.random() * maxX,
-    y: 20 + Math.random() * maxY,
-    startTime: performance.now(),
-    fontSize: HEADER_FONT_SIZE,
-    fadeStartTime: null,
-  });
+  fadeAllHeaders(activeHeaders, now);
+  activeHeaders.push(spawnHeader(ctx, canvas.width, canvas.height, fontFamily));
 }
 
 function handle_resize() {
@@ -261,9 +118,7 @@ function handle_resize() {
 }
 
 onMount(() => {
-  noise = new FastNoiseLite();
-  noise.SetNoiseType(FastNoiseLite.NoiseType.Cellular);
-  noise.SetFrequency(0.02);
+  noise = createNoise();
   init();
   animFrameId = requestAnimationFrame(animate);
   return () => cancelAnimationFrame(animFrameId);
