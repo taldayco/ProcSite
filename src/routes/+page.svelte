@@ -1,10 +1,10 @@
 <script>
 import { onMount } from "svelte";
-import { SPEED, FONT_SIZE, GAP, COLOR_MORPH_DURATION } from "$lib/constants.js";
+import { SPEED, FONT_SIZE, GAP, COLOR_MORPH_DURATION, DECODE_DURATION, FADE_DURATION } from "$lib/constants.js";
 import { buildColorStrings, randomPalette, randomFont, createColorMorph, updateColorMorph, buildMorphedColorStrings } from "$lib/palette.js";
 import { createNoise, randomizeNoise } from "$lib/noise.js";
 import { measureGrid, sizeCanvas } from "$lib/renderer.js";
-import { pruneHeaders, fadeAllHeaders, spawnHeader, renderHeaders } from "$lib/headers.js";
+import { pruneHeaders, fadeAllHeaders, spawnHeader, spawnHeaderWithWord, renderHeaders } from "$lib/headers.js";
 import { randomMode } from "$lib/modes/index.js";
 import { createEffectsState, updateCursor, clearCursor, spawnRipple, updateEffects } from "$lib/effects.js";
 import { randomize } from "$lib/randomize.js";
@@ -14,6 +14,16 @@ import Minigame from "$lib/Minigame.svelte";
 let phase = $state('intro');
 let clearProgress = 0;
 const CLEAR_DURATION = 0.8;
+
+// Kill auto-reset state
+let killHeaderTime = 0;
+
+// Decoding phase state
+let decodeStartTime = 0;
+let randomizeFired = 0;
+let lastDecodedWord = '';
+const RANDOMIZE_COUNT = 5;
+const RANDOMIZE_INTERVAL = 200;
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -152,6 +162,40 @@ function animate(timestamp) {
   // Effects
   updateEffects(effectsState, dt);
 
+  // Decoding phase: fire randomize bursts, then wait for final decode
+  if (phase === 'decoding') {
+    const elapsed = performance.now() - decodeStartTime;
+    // Fire additional randomize bursts at each interval
+    while (randomizeFired < RANDOMIZE_COUNT && elapsed >= randomizeFired * RANDOMIZE_INTERVAL) {
+      randomize_direction();
+      randomizeFired++;
+    }
+    // After all bursts fired, wait for final header to finish decoding
+    if (randomizeFired >= RANDOMIZE_COUNT) {
+      const lastHeader = activeHeaders[activeHeaders.length - 1];
+      if (lastHeader && performance.now() - lastHeader.startTime >= DECODE_DURATION) {
+        // Start fading the last header if not already fading
+        if (lastHeader.fadeStartTime == null) {
+          lastHeader.fadeStartTime = performance.now();
+          lastDecodedWord = lastHeader.word;
+        }
+        // Wait for fade to complete before clearing
+        if (performance.now() - lastHeader.fadeStartTime >= FADE_DURATION) {
+          clearProgress = 0;
+          phase = 'clearing';
+        }
+      }
+    }
+  }
+
+  // Kill auto-reset: after DEATH header decodes + 200ms, return to intro
+  if (killHeaderTime > 0 && performance.now() - killHeaderTime >= DECODE_DURATION + 200) {
+    phase = 'intro';
+    effectsState.clearZone = null;
+    killHeaderTime = 0;
+    fadeAllHeaders(activeHeaders, performance.now());
+  }
+
   // Clear zone animation
   if (phase === 'clearing') {
     clearProgress = Math.min(clearProgress + dt / CLEAR_DURATION, 1);
@@ -210,6 +254,38 @@ function randomize_direction() {
   });
   ({ lastDirectionChange, angle, dx, dy, colorMorph, fontFamily,
     cols, rows, charWidth, cellW, cellH, currentMode, modeState } = state);
+}
+
+function kill_effect() {
+  const now = performance.now();
+  if (now - lastDirectionChange < 300) return;
+  lastDirectionChange = now;
+
+  angle = Math.random() * 2 * Math.PI;
+  dx = Math.cos(angle);
+  dy = Math.sin(angle);
+
+  randomizeNoise(noise);
+
+  colorMorph = createColorMorph(baseColor, [255, 50, 50], COLOR_MORPH_DURATION);
+  fontFamily = randomFont();
+
+  const grid = measureGrid(ctx, fontFamily);
+  cols = grid.cols;
+  rows = grid.rows;
+  charWidth = grid.charWidth;
+  cellW = grid.cellW;
+  cellH = grid.cellH;
+  sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
+  ctx.font = `${FONT_SIZE}px ${fontFamily}`;
+  ctx.textBaseline = 'top';
+
+  currentMode = randomMode(currentMode.name);
+  modeState = currentMode.init(ctx, noise, cols, rows, colorStrings, fontFamily);
+
+  fadeAllHeaders(activeHeaders, now);
+  activeHeaders.push(spawnHeaderWithWord(ctx, canvas.width, canvas.height, fontFamily, 'DEATH'));
+  killHeaderTime = performance.now();
 }
 
 /** @param {MouseEvent} e */
@@ -277,9 +353,14 @@ onMount(() => {
 ></canvas>
 
 {#if phase === 'intro'}
-  <Intro {baseColor} ondone={() => { clearProgress = 0; phase = 'clearing'; }} />
+  <Intro {baseColor} ondone={() => {
+    phase = 'decoding';
+    randomize_direction();
+    decodeStartTime = performance.now();
+    randomizeFired = 1;
+  }} />
 {:else if phase === 'game'}
-  <Minigame {baseColor} />
+  <Minigame {baseColor} decodedWord={lastDecodedWord} ondetection={randomize_direction} onkill={kill_effect} />
 {/if}
 
 <style>

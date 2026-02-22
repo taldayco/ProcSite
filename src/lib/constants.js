@@ -34,7 +34,6 @@ export const WORDS = [
   "NEURAL",
   "CIPHER",
   "VOID",
-  "DEATH",
   "DAEMON",
   "KERNEL",
   "BINARY",

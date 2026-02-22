@@ -21,6 +21,7 @@ export const EntryType = {
  *   overlord: import('./player.js').OverlordState,
  *   won: boolean,
  *   lost: boolean,
+ *   killed: boolean,
  * }} GameState
  */
 
@@ -34,6 +35,7 @@ export function newGameState() {
     overlord: newOverlord(),
     won: false,
     lost: false,
+    killed: false,
   };
 }
 
@@ -78,6 +80,12 @@ export function execute(gs, input) {
     case 'cloak':
       entries.push(...cmdCloak(gs));
       break;
+    case 'sudo':
+      if (args.join(' ').toLowerCase() === 'rm -rf user') {
+        entries.push(...cmdSudoRm(gs));
+        break;
+      }
+      // fall through
     default:
       entries.push({ text: `Unknown command: ${cmd}. Type 'help' for commands.`, type: EntryType.Error });
   }
@@ -110,6 +118,7 @@ function cmdHelp() {
     '  crack  - Hack current node (variable DATA cost)',
     '  spike  - Plant spike on cracked target (free)',
     '  cloak  - Reduce detection for 3 turns (3 DATA)',
+    '  sudo rm -rf user - undefined',
   ].map(text => ({ text, type: EntryType.Info }));
 }
 
@@ -333,6 +342,13 @@ function cmdCloak(gs) {
     text: `Cloak activated for 3 turns. -3 DATA (${gs.player.data} remaining)`,
     type: EntryType.Success,
   }];
+}
+
+/** @param {GameState} gs */
+function cmdSudoRm(gs) {
+  gs.killed = true;
+  gs.lost = true;
+  return [{ text: 'USER DELETED.', type: EntryType.Error }];
 }
 
 /** @param {GameState} gs */

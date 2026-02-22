@@ -54,6 +54,29 @@ export function spawnHeader(ctx, canvasWidth, canvasHeight, fontFamily) {
 
 /**
  * @param {CanvasRenderingContext2D} ctx
+ * @param {number} canvasWidth
+ * @param {number} canvasHeight
+ * @param {string} fontFamily
+ * @param {string} word
+ * @returns {Header}
+ */
+export function spawnHeaderWithWord(ctx, canvasWidth, canvasHeight, fontFamily, word) {
+  ctx.font = `${HEADER_FONT_SIZE}px ${fontFamily}`;
+  const textWidth = ctx.measureText(word).width;
+  const maxX = Math.max(0, canvasWidth - textWidth - 20);
+  const maxY = Math.max(0, canvasHeight - HEADER_FONT_SIZE - 20);
+  return {
+    word,
+    x: 20 + Math.random() * maxX,
+    y: 20 + Math.random() * maxY,
+    startTime: performance.now(),
+    fontSize: HEADER_FONT_SIZE,
+    fadeStartTime: null,
+  };
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
  * @param {Header[]} headers
  * @param {string[]} colorStrings
  * @param {string} fontFamily

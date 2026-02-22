@@ -4,8 +4,8 @@
   import { getNode } from './game/network.js';
   import Minimap from './Minimap.svelte';
 
-  /** @type {{ baseColor: number[] }} */
-  let { baseColor } = $props();
+  /** @type {{ baseColor: number[], decodedWord?: string, ondetection?: () => void, onkill?: () => void }} */
+  let { baseColor, decodedWord = '', ondetection, onkill } = $props();
 
   let colorRgb = $derived(`rgb(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]})`);
   let colorGlow = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.6)`);
@@ -44,6 +44,7 @@
       'ESTABLISHING SECURE TUNNEL...',
       'BYPASSING FIREWALL...',
       'CONNECTED.',
+      '...'
     ];
     for (const line of lines) {
       bootLines = [...bootLines, line];
@@ -71,14 +72,21 @@
     const cmd = inputText;
     inputText = '';
 
+    const prevDetection = gs.player.detection;
     const entries = execute(gs, cmd);
     if (entries.length === 0) return;
+
+    if (gs.killed && onkill) {
+      onkill();
+    } else if (gs.player.detection > prevDetection && ondetection) {
+      ondetection();
+    }
 
     // Trigger reactivity by reassigning
     gs = gs;
     history = [...history, ...entries];
 
-    if (gs.won || gs.lost) {
+    if ((gs.won || gs.lost) && !gs.killed) {
       const gameOverEntries = buildGameOverEntries(gs);
       history = [...history, ...gameOverEntries];
       phase = 'gameover';
@@ -158,6 +166,7 @@
     {:else}
       <!-- Status bar -->
       <div class="status-bar" style="border-bottom-color: {colorDim}; color: {colorRgb};">
+        {#if decodedWord}<span>{decodedWord}</span>{/if}
         <span>DATA: {gs.player.data}</span>
         <span>DETECTION: {Math.floor(gs.player.detection * 100)}%</span>
         <span>TARGETS: {gs.player.spikeCount}/3</span>
