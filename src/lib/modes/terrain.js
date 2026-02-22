@@ -1,5 +1,6 @@
 import { FONT_SIZE, GAP, BRIGHTNESS_LEVELS } from '../constants.js';
 import { sampleNoise } from '../noise.js';
+import { cellBrightnessModifier } from '../effects.js';
 
 const TERRAIN_CHARS = [' ', '░', '▒', '▓', '█'];
 
@@ -38,7 +39,7 @@ export function update(state, dt, offset, noise, cols, rows) {
  * @param {string} fontFamily
  * @param {number} dt
  */
-export function render(ctx, state, noise, cols, rows, offset, colorStrings, fontFamily, dt) {
+export function render(ctx, state, noise, cols, rows, offset, colorStrings, fontFamily, dt, effectsState) {
   const charWidth = ctx.measureText('W').width;
   const cellW = charWidth + GAP;
   const cellH = FONT_SIZE + GAP;
@@ -56,7 +57,8 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
       if (terrainIdx === 0) continue; // space = empty
 
       // Map noise to brightness bucket
-      const bucket = Math.min(Math.floor(noiseVal * BRIGHTNESS_LEVELS), BRIGHTNESS_LEVELS - 1);
+      const effectMod = cellBrightnessModifier(effectsState, col, row);
+      const bucket = Math.min(Math.floor(noiseVal * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
       if (bucket === 0) continue;
 
       buckets[bucket].push(col, row, terrainIdx);

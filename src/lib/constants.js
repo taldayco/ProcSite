@@ -18,6 +18,10 @@ export const PALETTES = [
   [255, 50, 50],   // red
 ];
 
+export const COLOR_MORPH_DURATION = 1.5;
+export const AGE_BRIGHTNESS_BOOST = 0.15;
+export const AGE_MATURITY = 3.0;
+
 export const FONTS = ['monospace', 'Courier New', 'Consolas', 'Monaco', 'Lucida Console'];
 
 export const WORDS = [

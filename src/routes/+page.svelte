@@ -1,11 +1,12 @@
 <script>
 import { onMount } from "svelte";
-import { SPEED, FONT_SIZE, GAP } from "$lib/constants.js";
-import { buildColorStrings, randomPalette, randomFont } from "$lib/palette.js";
+import { SPEED, FONT_SIZE, GAP, COLOR_MORPH_DURATION } from "$lib/constants.js";
+import { buildColorStrings, randomPalette, randomFont, createColorMorph, updateColorMorph, buildMorphedColorStrings } from "$lib/palette.js";
 import { createNoise, randomizeNoise } from "$lib/noise.js";
 import { measureGrid, sizeCanvas } from "$lib/renderer.js";
 import { pruneHeaders, fadeAllHeaders, spawnHeader, renderHeaders } from "$lib/headers.js";
 import { randomMode } from "$lib/modes/index.js";
+import { createEffectsState, updateCursor, clearCursor, spawnRipple, updateEffects } from "$lib/effects.js";
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -23,6 +24,7 @@ let animFrameId;
 let lastDirectionChange = 0;
 
 let cols = 0, rows = 0, charWidth = 0;
+let cellW = 0, cellH = 0;
 /** @type {number[]} */
 let baseColor = [0, 255, 70];
 let fontFamily = 'monospace';
@@ -36,12 +38,20 @@ let currentMode;
 /** @type {any} */
 let modeState;
 
+/** @type {ReturnType<typeof createColorMorph> | null} */
+let colorMorph = null;
+
+/** @type {ReturnType<typeof createEffectsState>} */
+let effectsState;
+
 function init() {
   ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
   const grid = measureGrid(ctx, fontFamily);
   cols = grid.cols;
   rows = grid.rows;
   charWidth = grid.charWidth;
+  cellW = grid.cellW;
+  cellH = grid.cellH;
 
   sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
 
@@ -62,6 +72,19 @@ function animate(timestamp) {
   const dt = (timestamp - lastTime) / 1000;
   lastTime = timestamp;
 
+  // Color morphing
+  if (colorMorph) {
+    const done = updateColorMorph(colorMorph, dt);
+    colorStrings = buildMorphedColorStrings(colorMorph);
+    if (done) {
+      baseColor = colorMorph.to;
+      colorMorph = null;
+    }
+  }
+
+  // Effects
+  updateEffects(effectsState, dt);
+
   offsetX += dx * SPEED * dt;
   offsetY += dy * SPEED * dt;
 
@@ -70,7 +93,7 @@ function animate(timestamp) {
 
   const offset = { x: offsetX, y: offsetY };
   currentMode.update(modeState, dt, offset, noise, cols, rows);
-  currentMode.render(ctx, modeState, noise, cols, rows, offset, colorStrings, fontFamily, dt);
+  currentMode.render(ctx, modeState, noise, cols, rows, offset, colorStrings, fontFamily, dt, effectsState);
 
   const now = performance.now();
   activeHeaders = pruneHeaders(activeHeaders, now);
@@ -90,14 +113,16 @@ function randomize_direction() {
 
   randomizeNoise(noise);
 
-  baseColor = randomPalette();
+  // Smooth color morph instead of instant switch
+  colorMorph = createColorMorph(baseColor, randomPalette(), COLOR_MORPH_DURATION);
   fontFamily = randomFont();
-  colorStrings = buildColorStrings(baseColor);
 
   const grid = measureGrid(ctx, fontFamily);
   cols = grid.cols;
   rows = grid.rows;
   charWidth = grid.charWidth;
+  cellW = grid.cellW;
+  cellH = grid.cellH;
   sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
   ctx.font = `${FONT_SIZE}px ${fontFamily}`;
   ctx.textBaseline = 'top';
@@ -110,6 +135,47 @@ function randomize_direction() {
   activeHeaders.push(spawnHeader(ctx, canvas.width, canvas.height, fontFamily));
 }
 
+/** @param {MouseEvent} e */
+function handle_mousemove(e) {
+  updateCursor(effectsState, e.clientX, e.clientY, cellW, cellH);
+}
+
+function handle_mouseleave() {
+  clearCursor(effectsState);
+}
+
+/** @param {MouseEvent} e */
+function handle_click(e) {
+  const col = e.clientX / cellW;
+  const row = e.clientY / cellH;
+  spawnRipple(effectsState, col, row);
+  randomize_direction();
+}
+
+/** @param {TouchEvent} e */
+function handle_touchstart(e) {
+  const t = e.touches[0];
+  if (t) {
+    const col = t.clientX / cellW;
+    const row = t.clientY / cellH;
+    updateCursor(effectsState, t.clientX, t.clientY, cellW, cellH);
+    spawnRipple(effectsState, col, row);
+  }
+  randomize_direction();
+}
+
+/** @param {TouchEvent} e */
+function handle_touchmove(e) {
+  const t = e.touches[0];
+  if (t) {
+    const col = t.clientX / cellW;
+    const row = t.clientY / cellH;
+    updateCursor(effectsState, t.clientX, t.clientY, cellW, cellH);
+    spawnRipple(effectsState, col, row);
+  }
+  randomize_direction();
+}
+
 function handle_resize() {
   cancelAnimationFrame(animFrameId);
   lastTime = 0;
@@ -119,6 +185,7 @@ function handle_resize() {
 
 onMount(() => {
   noise = createNoise();
+  effectsState = createEffectsState();
   init();
   animFrameId = requestAnimationFrame(animate);
   return () => cancelAnimationFrame(animFrameId);
@@ -128,9 +195,11 @@ onMount(() => {
 <svelte:window onresize={handle_resize} onkeydown={randomize_direction} onscroll={randomize_direction} />
 <canvas
   bind:this={canvas}
-  onclick={randomize_direction}
-  ontouchstart={randomize_direction}
-  ontouchmove={randomize_direction}
+  onclick={handle_click}
+  onmousemove={handle_mousemove}
+  onmouseleave={handle_mouseleave}
+  ontouchstart={handle_touchstart}
+  ontouchmove={handle_touchmove}
   onwheel={randomize_direction}
 ></canvas>
 

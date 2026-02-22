@@ -1,6 +1,7 @@
 import { FONT_SIZE, GAP, BRIGHTNESS_LEVELS, NOISE_SCALE } from '../constants.js';
 import { CHARS } from '../characters.js';
 import { createNoise, sampleNoise } from '../noise.js';
+import { cellBrightnessModifier } from '../effects.js';
 
 /**
  * @param {CanvasRenderingContext2D} ctx
@@ -40,7 +41,7 @@ export function update(state, dt, offset, noise, cols, rows) {
  * @param {string} fontFamily
  * @param {number} dt
  */
-export function render(ctx, state, noise, cols, rows, offset, colorStrings, fontFamily, dt) {
+export function render(ctx, state, noise, cols, rows, offset, colorStrings, fontFamily, dt, effectsState) {
   const { layers, weights } = state;
   const charWidth = ctx.measureText('W').width;
   const cellW = charWidth + GAP;
@@ -63,7 +64,8 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
       // Clamp to [0, 1]
       blended = Math.min(Math.max(blended, 0), 1);
 
-      const bucket = Math.min(Math.floor(blended * BRIGHTNESS_LEVELS), BRIGHTNESS_LEVELS - 1);
+      const effectMod = cellBrightnessModifier(effectsState, col, row);
+      const bucket = Math.min(Math.floor(blended * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
       if (bucket === 0) continue;
 
       const charIdx = Math.floor(blended * CHARS.length) % CHARS.length;

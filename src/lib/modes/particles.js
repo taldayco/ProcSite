@@ -1,6 +1,7 @@
 import { FONT_SIZE, GAP, BRIGHTNESS_LEVELS } from '../constants.js';
 import { CHARS } from '../characters.js';
 import { sampleNoise } from '../noise.js';
+import { cellBrightnessModifier } from '../effects.js';
 
 /**
  * @param {CanvasRenderingContext2D} ctx
@@ -73,7 +74,7 @@ export function update(state, dt, offset, noise, cols, rows) {
  * @param {string} fontFamily
  * @param {number} dt
  */
-export function render(ctx, state, noise, cols, rows, offset, colorStrings, fontFamily, dt) {
+export function render(ctx, state, noise, cols, rows, offset, colorStrings, fontFamily, dt, effectsState) {
   const { particles } = state;
   const charWidth = ctx.measureText('W').width;
   const cellW = charWidth + GAP;
@@ -100,7 +101,8 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
 
     const noiseVal = sampleNoise(noise, p.x, p.y, offset.x, offset.y);
     const brightness = alpha * (0.3 + noiseVal * 0.7);
-    const bucket = Math.min(Math.floor(brightness * BRIGHTNESS_LEVELS), BRIGHTNESS_LEVELS - 1);
+    const effectMod = cellBrightnessModifier(effectsState, p.x, p.y);
+    const bucket = Math.min(Math.floor(brightness * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
     if (bucket <= 0) continue;
 
     const drawX = p.x * cellW;
