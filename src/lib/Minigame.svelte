@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import { newGameState, execute, buildGameOverEntries, EntryType } from './game/commands.js';
   import { getNode } from './game/network.js';
+  import Minimap from './Minimap.svelte';
 
   /** @type {{ baseColor: number[] }} */
   let { baseColor } = $props();
@@ -32,8 +33,8 @@
 
   const BANNER = [
     '╔═══════════════════════════════════════╗',
-    '║          DDS-HACKER v1.0              ║',
-    '║   Infiltrate. Crack. Spike. Escape.   ║',
+    '║                                       ║',
+    '║                                       ║',
     '╚═══════════════════════════════════════╝',
   ];
 
@@ -138,6 +139,10 @@
     }
   }
 </script>
+
+{#if phase !== 'connecting'}
+  <Minimap network={gs.network} player={gs.player} {baseColor} />
+{/if}
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
