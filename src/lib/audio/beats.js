@@ -66,12 +66,12 @@ export async function initBeats() {
     try {
       await repl.evaluate(REGISTERED_FUNCTIONS);
     } catch (e) {
-      console.error('Failed to register functions:', e);
+      console.error("Failed to register functions:", e);
     }
     try {
       await repl.evaluate(WINDOW_FUNCTIONS);
     } catch (e) {
-      console.error('Failed to register window functions:', e);
+      console.error("Failed to register window functions:", e);
     }
   })();
   return initPromise;
@@ -201,7 +201,7 @@ export function playDeathSynth() {
   const duration = 1.5;
 
   const osc = ctx.createOscillator();
-  osc.type = 'sawtooth';
+  osc.type = "sawtooth";
   osc.frequency.setValueAtTime(300, now);
   osc.frequency.exponentialRampToValueAtTime(40, now + duration);
 
@@ -214,7 +214,7 @@ export function playDeathSynth() {
   shaper.curve = curve;
 
   const filter = ctx.createBiquadFilter();
-  filter.type = 'lowpass';
+  filter.type = "lowpass";
   filter.frequency.setValueAtTime(1200, now);
   filter.frequency.exponentialRampToValueAtTime(80, now + duration);
 

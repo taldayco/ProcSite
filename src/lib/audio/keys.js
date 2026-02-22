@@ -1,4 +1,4 @@
-import { getCtx } from './context.js';
+import { getCtx } from "./context.js";
 
 /**
  * 40ms filtered white-noise burst with random bandpass (4-6kHz).
@@ -20,13 +20,13 @@ export function playKeystroke() {
   src.buffer = buf;
 
   const filter = ctx.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.value = 4000 + Math.random() * 2000;
-  filter.Q.value = 1.5;
+  filter.type = "bandpass";
+  filter.frequency.value = 2500 + Math.random() * 1500;
+  filter.Q.value = 0.8;
 
   const gain = ctx.createGain();
-  const baseVol = 0.08;
-  const jitter = 0.6 + Math.random() * 0.8;  // 0.6x to 1.4x multiplier
+  const baseVol = 0.04;
+  const jitter = 0.7 + Math.random() * 0.6; // 0.7x to 1.3x multiplier
   gain.gain.setValueAtTime(baseVol * jitter, now);
   gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
@@ -41,7 +41,7 @@ export function playSubmit() {
   const now = ctx.currentTime;
 
   const osc = ctx.createOscillator();
-  osc.type = 'square';
+  osc.type = "square";
   osc.frequency.setValueAtTime(880, now);
   osc.frequency.setValueAtTime(1760, now + 0.02);
 
@@ -61,7 +61,7 @@ export function playBlink() {
   const now = ctx.currentTime;
   const duration = 0.05;
   const osc = ctx.createOscillator();
-  osc.type = 'sine';
+  osc.type = "sine";
   osc.frequency.setValueAtTime(600, now);
   osc.frequency.exponentialRampToValueAtTime(400, now + duration);
   const gain = ctx.createGain();
@@ -79,12 +79,12 @@ export function playBackspace() {
   const now = ctx.currentTime;
 
   const osc = ctx.createOscillator();
-  osc.type = 'sine';
+  osc.type = "sine";
   osc.frequency.setValueAtTime(800, now);
   osc.frequency.exponentialRampToValueAtTime(300, now + duration);
 
   const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.10, now);
+  gain.gain.setValueAtTime(0.1, now);
   gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
   osc.connect(gain).connect(ctx.destination);
