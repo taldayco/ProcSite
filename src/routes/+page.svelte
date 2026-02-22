@@ -94,6 +94,23 @@ function renderTerminalBorder(c, zone, cw, ch, colors, font) {
   c.restore();
 }
 
+/**
+ * Compute the full-size clear zone dimensions from the current viewport and grid.
+ */
+function computeFullClearZone() {
+  const centerCol = cols / 2;
+  const centerRow = rows / 2;
+  // Terminal is max-width:800px, max-height:min(600, 80vh), plus overlay padding (1rem = 16px each side)
+  const termWidthPx = Math.min(800, window.innerWidth - 32);
+  const termHeightPx = Math.min(600, window.innerHeight * 0.8);
+  return {
+    centerCol,
+    centerRow,
+    halfW: termWidthPx / (2 * cellW) + 1,
+    halfH: termHeightPx / (2 * cellH) + 1,
+  };
+}
+
 function init() {
   ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
   const grid = measureGrid(ctx, fontFamily);
@@ -138,25 +155,24 @@ function animate(timestamp) {
   // Clear zone animation
   if (phase === 'clearing') {
     clearProgress = Math.min(clearProgress + dt / CLEAR_DURATION, 1);
-    const centerCol = cols / 2;
-    const centerRow = rows / 2;
-    // Terminal is max-width:800px, max-height:min(600, 80vh), plus 2-cell padding
-    const termWidthPx = Math.min(800, window.innerWidth);
-    const termHeightPx = Math.min(600, window.innerHeight * 0.8);
-    const targetHalfW = termWidthPx / (2 * cellW) + 1;
-    const targetHalfH = termHeightPx / (2 * cellH) + 1;
+    const zone = computeFullClearZone();
     // Smoothstep easing
     const t = clearProgress;
     const eased = t * t * (3 - 2 * t);
     effectsState.clearZone = {
-      centerCol,
-      centerRow,
-      halfW: targetHalfW * eased,
-      halfH: targetHalfH * eased,
+      centerCol: zone.centerCol,
+      centerRow: zone.centerRow,
+      halfW: zone.halfW * eased,
+      halfH: zone.halfH * eased,
     };
     if (clearProgress >= 1) {
       phase = 'game';
     }
+  }
+
+  // Keep clear zone in sync with viewport during game
+  if (phase === 'game') {
+    effectsState.clearZone = computeFullClearZone();
   }
 
   offsetX += dx * SPEED * dt;

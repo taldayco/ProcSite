@@ -92,8 +92,8 @@
     gs = newGameState();
     history = [];
     bootLines = [];
+    booted = false;
     phase = 'connecting';
-    runBootSequence();
   }
 
   function focusInput() {
@@ -108,8 +108,13 @@
     }
   }
 
+  let booted = false;
+
   $effect(() => {
-    runBootSequence();
+    if (!booted) {
+      booted = true;
+      runBootSequence();
+    }
   });
 
   $effect(() => {
@@ -204,13 +209,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
+    padding: 1rem;
+    box-sizing: border-box;
     pointer-events: none;
   }
 
   .terminal-frame {
     width: 100%;
     max-width: 800px;
+    box-sizing: border-box;
     height: 80vh;
     max-height: 600px;
     border: none;
@@ -252,11 +259,29 @@
 
   .status-bar {
     display: flex;
-    gap: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
     padding: 0.5rem 1rem;
     border-bottom: 1px solid;
     font-size: 12px;
     flex-shrink: 0;
+  }
+
+  @media (max-width: 500px) {
+    .status-bar {
+      font-size: 12px;
+      padding: 0.4rem 0.5rem;
+      gap: 0.3rem 0.8rem;
+    }
+    .terminal-frame {
+      font-size: 12px;
+    }
+    .history-line pre,
+    .prompt,
+    .input-display,
+    .boot-line {
+      font-size: 12px;
+    }
   }
 
   .history {
