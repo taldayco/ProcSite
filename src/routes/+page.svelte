@@ -22,8 +22,14 @@ const PALETTES = [
 ];
 const FONTS = ['monospace', 'Courier New', 'Consolas', 'Monaco', 'Lucida Console'];
 
+const WORDS = ['NEURAL', 'CIPHER', 'GLITCH', 'VOID', 'MATRIX', 'DAEMON', 'KERNEL', 'BINARY', 'FLUX', 'PULSE', 'VERTEX', 'PROXY', 'SOCKET', 'BREACH', 'SPAWN', 'VECTOR', 'QUBIT', 'CACHE', 'EPOCH', 'SHARD'];
+const HEADER_FONT_SIZE = 42;
+const DECODE_DURATION = 1500;
+const FADE_DURATION = 500;
+
 let BASE_COLOR = [0, 255, 70];
 let FONT_FAMILY = 'monospace';
+let activeHeaders = [];
 
 const CHARS =
   'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン' +
@@ -121,7 +127,7 @@ function animate(timestamp) {
     }
   }
 
-  // Draw per bucket
+  // Draw per bucket (batch by color)
   ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
   ctx.textBaseline = 'top';
   for (let b = 1; b < BRIGHTNESS_LEVELS; b++) {
@@ -131,6 +137,42 @@ function animate(timestamp) {
     for (let i = 0; i < arr.length; i += 3) {
       ctx.fillText(CHARS[arr[i + 2]], arr[i] * (charWidth + GAP), arr[i + 1] * (FONT_SIZE + GAP));
     }
+  }
+
+  // Render decoding headers
+  const now = performance.now();
+  activeHeaders = activeHeaders.filter(h => {
+    if (h.fadeStartTime == null) return true;
+    return (now - h.fadeStartTime) < FADE_DURATION;
+  });
+
+  for (const h of activeHeaders) {
+    const elapsed = now - h.startTime;
+    ctx.save();
+    ctx.font = `${h.fontSize}px ${FONT_FAMILY}`;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colorStrings[BRIGHTNESS_LEVELS - 1];
+
+    if (h.fadeStartTime != null) {
+      // Fading phase
+      const fadeElapsed = now - h.fadeStartTime;
+      ctx.globalAlpha = 1 - fadeElapsed / FADE_DURATION;
+    }
+
+    let text = '';
+    for (let i = 0; i < h.word.length; i++) {
+      const resolveAt = (i / h.word.length) * DECODE_DURATION;
+      if (elapsed >= resolveAt) {
+        text += h.word[i];
+      } else {
+        // Scramble: pick a random char, cycling every ~50ms
+        const scrambleIdx = Math.floor(now / 50 + i * 7) % CHARS.length;
+        text += CHARS[scrambleIdx];
+      }
+    }
+
+    ctx.fillText(text, h.x, h.y);
+    ctx.restore();
   }
 
   animFrameId = requestAnimationFrame(animate);
@@ -181,6 +223,29 @@ function randomize_direction() {
   } else {
     charWidth = newCharWidth;
   }
+
+  // Mark existing headers for fade-out
+  const fadeNow = performance.now();
+  for (const h of activeHeaders) {
+    if (h.fadeStartTime == null) {
+      h.fadeStartTime = fadeNow;
+    }
+  }
+
+  // Spawn a decoding header
+  const word = WORDS[Math.floor(Math.random() * WORDS.length)];
+  ctx.font = `${HEADER_FONT_SIZE}px ${FONT_FAMILY}`;
+  const textWidth = ctx.measureText(word).width;
+  const maxX = Math.max(0, canvas.width - textWidth - 20);
+  const maxY = Math.max(0, canvas.height - HEADER_FONT_SIZE - 20);
+  activeHeaders.push({
+    word,
+    x: 20 + Math.random() * maxX,
+    y: 20 + Math.random() * maxY,
+    startTime: performance.now(),
+    fontSize: HEADER_FONT_SIZE,
+    fadeStartTime: null,
+  });
 }
 
 function handle_resize() {
