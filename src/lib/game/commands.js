@@ -27,6 +27,7 @@ export const EntryType = {
  *   lost: boolean,
  *   killed: boolean,
  *   devCheat: boolean,
+ *   score: number,
  *   actionCount: number,
  * }} GameState
  */
@@ -49,6 +50,7 @@ export function newGameState(word = '') {
     won: false,
     lost: false,
     killed: false,
+    score: 0,
     devCheat: false,
     actionCount: 0,
     _justHopped: false,
@@ -464,16 +466,18 @@ function cmdSpike(gs) {
 
   node.state = NodeState.Spiked;
   gs.player.spikeCount++;
+  gs.score += 100;
 
   /** @type {HistoryEntry[]} */
   const entries = [{
-    text: `SPIKE PLANTED on ${node.name}! (${gs.player.spikeCount}/${targetCount})`,
+    text: `SPIKE PLANTED on ${node.name}! (${gs.player.spikeCount}/${targetCount}) [+100 PTS]`,
     type: EntryType.Success,
   }];
 
   if (gs.player.spikeCount >= targetCount) {
+    gs.score += 500;
     gs.won = true;
-    entries.push({ text: 'ALL TARGETS SPIKED!', type: EntryType.Success });
+    entries.push({ text: 'ALL TARGETS SPIKED! [+500 BONUS]', type: EntryType.Success });
   }
 
   return entries;
@@ -615,7 +619,7 @@ export function buildGameOverEntries(gs) {
 
   entries.push(
     { text: '', type: EntryType.System },
-    { text: `  Hops: ${gs.player.hopCount}  |  Targets spiked: ${gs.player.spikeCount}/${targetCount}  |  DATA remaining: ${gs.player.data}`, type: EntryType.Info },
+    { text: `  Hops: ${gs.player.hopCount}  |  Targets spiked: ${gs.player.spikeCount}/${targetCount}  |  DATA remaining: ${gs.player.data}  |  SCORE: ${gs.score}`, type: EntryType.Info },
     { text: '', type: EntryType.System },
   );
 

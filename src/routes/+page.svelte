@@ -12,6 +12,7 @@ import Intro from "$lib/Intro.svelte";
 import Minigame from "$lib/Minigame.svelte";
 
 let phase = $state('intro');
+let carryScore = $state(0);
 let clearProgress = 0;
 const CLEAR_DURATION = 0.8;
 
@@ -377,7 +378,8 @@ onMount(() => {
     randomizeFired = 1;
   }} onkill={kill_effect} />
 {:else if phase === 'game'}
-  <Minigame {baseColor} decodedWord={lastDecodedWord} ondetection={() => randomize_direction({ skipHeaders: true })} onkill={kill_effect} onnextlevel={() => {
+  <Minigame {baseColor} decodedWord={lastDecodedWord} initialScore={carryScore} ondetection={() => randomize_direction({ skipHeaders: true })} onkill={() => { carryScore = 0; kill_effect(); }} onnextlevel={(score) => {
+    carryScore = score;
     phase = 'decoding';
     randomize_direction();
     decodeStartTime = performance.now();

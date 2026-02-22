@@ -5,8 +5,8 @@
   import { getModifier } from './game/modifiers.js';
   import Minimap from './Minimap.svelte';
 
-  /** @type {{ baseColor: number[], decodedWord?: string, ondetection?: () => void, onkill?: () => void, onnextlevel?: () => void }} */
-  let { baseColor, decodedWord = '', ondetection, onkill, onnextlevel } = $props();
+  /** @type {{ baseColor: number[], decodedWord?: string, initialScore?: number, ondetection?: () => void, onkill?: () => void, onnextlevel?: (score: number) => void }} */
+  let { baseColor, decodedWord = '', initialScore = 0, ondetection, onkill, onnextlevel } = $props();
 
   let colorRgb = $derived(`rgb(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]})`);
   let colorGlow = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.6)`);
@@ -19,6 +19,7 @@
 
   /** @type {import('./game/commands.js').GameState} */
   let gs = $state(newGameState(decodedWord));
+  gs.score = initialScore;
 
   /** @type {import('./game/commands.js').HistoryEntry[]} */
   let history = $state([]);
@@ -102,7 +103,7 @@
 
     if ((gs.won || gs.lost) && !gs.killed) {
       if (gs.won && onnextlevel) {
-        onnextlevel();
+        onnextlevel(gs.score);
       } else {
         const gameOverEntries = buildGameOverEntries(gs);
         history = [...history, ...gameOverEntries];
@@ -188,6 +189,7 @@
         <span>DATA: {gs.player.data}</span>
         <span>DETECTION: {Math.floor(gs.player.detection * 100)}%</span>
         <span>TARGETS: {gs.player.spikeCount}/{gs.mod.targetCount || 3}</span>
+        <span>SCORE: {gs.score}</span>
         {#if gs.player.cloakTurns > 0}
           <span>CLOAK: {gs.player.cloakTurns}</span>
         {/if}
