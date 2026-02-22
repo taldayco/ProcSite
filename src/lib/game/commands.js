@@ -98,6 +98,9 @@ export function execute(gs, input) {
     case 'extract':
       entries.push(...cmdExtract(gs));
       break;
+    case 'pass':
+      entries.push(...cmdPass(gs));
+      break;
     case 'cloak':
       entries.push(...cmdCloak(gs));
       break;
@@ -120,7 +123,7 @@ export function execute(gs, input) {
   }
 
   // Decrement cloak
-  const isAction = ['hop', 'crack', 'scan', 'extract', 'cloak', 'spike', 'kill'].includes(cmd);
+  const isAction = ['hop', 'crack', 'scan', 'extract', 'cloak', 'spike', 'kill', 'pass'].includes(cmd);
   if (gs.player.cloakTurns > 0 && isAction) {
     gs.player.cloakTurns--;
     if (gs.player.cloakTurns === 0) {
@@ -181,10 +184,11 @@ function cmdHelp(gs) {
     '  status - Show current stats',
     '  map    - Show discovered network',
     `  scan   - Reveal connected nodes (${scanCost * cm} DATA)`,
-    `  hop <node> - Move to a ${mod.hopAnywhere ? 'discovered' : 'connected'} node (${hopCost * cm} DATA)`,
+    `  hop <node> - Move to a ${mod.hopAnywhere ? 'discovered' : 'connected'} node (free if visited & <50% detection, else ${hopCost * cm} DATA)`,
     '  crack  - Hack current node (variable DATA cost)',
     '  spike  - Plant spike on cracked target (free)',
     '  extract - Extract data from cracked Server (free)',
+    '  pass   - Idle cycle: gain 1 DATA, +5% detection',
     `  cloak  - Reduce detection for 3 turns (${cloakCost * cm} DATA)`,
     '  kill   - Eliminate rival hacker at your node (2 DATA)',
     '  sudo rm -rf user - undefined',
@@ -341,7 +345,12 @@ function cmdHop(gs, args) {
   }
 
   const baseCost = mod.hopCost !== undefined ? mod.hopCost : 1;
-  const cost = baseCost * (mod.costMultiplier || 1);
+  let cost = baseCost * (mod.costMultiplier || 1);
+
+  // Free hop to previously visited nodes while detection < 50%
+  if (gs.player.visitedNodes.has(target.id) && gs.player.detection < 0.5) {
+    cost = 0;
+  }
 
   if (gs.player.data < cost) {
     return [{ text: `Insufficient DATA to hop. Cost: ${cost}`, type: EntryType.Error }];
@@ -350,11 +359,14 @@ function cmdHop(gs, args) {
   gs.player.data -= cost;
   gs.player.currentNode = target.id;
   gs.player.hopCount++;
+  gs.player.visitedNodes.add(target.id);
   gs._justHopped = true;
 
   /** @type {HistoryEntry[]} */
   const entries = [{
-    text: `Hopped to ${target.name}. -${cost} DATA (${gs.player.data} remaining)`,
+    text: cost === 0
+      ? `Hopped to ${target.name}. (free revisit, ${gs.player.data} DATA remaining)`
+      : `Hopped to ${target.name}. -${cost} DATA (${gs.player.data} remaining)`,
     type: EntryType.Info,
   }];
 
@@ -545,6 +557,18 @@ function cmdExtract(gs) {
     text: `Data extracted from ${node.name}! +${reward} DATA (${gs.player.data} total)`,
     type: EntryType.Success,
   }];
+}
+
+/** @param {GameState} gs */
+function cmdPass(gs) {
+  gs.player.data += 1;
+  gs.player.detection += 0.05;
+  if (gs.player.detection > 1.0) gs.player.detection = 1.0;
+
+  return [
+    { text: `Idle cycle... +1 DATA (${gs.player.data} total)`, type: EntryType.Success },
+    { text: `>> +5% detection (${Math.floor(gs.player.detection * 100)}%)`, type: EntryType.Warning },
+  ];
 }
 
 /**

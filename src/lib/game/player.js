@@ -8,6 +8,7 @@ import { NodeType, NodeState, getNode, bfs } from './network.js';
  *   cloakTurns: number,
  *   hopCount: number,
  *   spikeCount: number,
+ *   visitedNodes: Set<number>,
  * }} Player
  */
 
@@ -51,6 +52,7 @@ export function newPlayer(net, mod = {}) {
     cloakTurns: 0,
     hopCount: 0,
     spikeCount: 0,
+    visitedNodes: new Set([startID]),
   };
 }
 
