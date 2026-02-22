@@ -1,11 +1,11 @@
 <script>
 import { onMount } from "svelte";
 import { SPEED, FONT_SIZE, GAP } from "$lib/constants.js";
-import { createCharArrays } from "$lib/characters.js";
 import { buildColorStrings, randomPalette, randomFont } from "$lib/palette.js";
 import { createNoise, randomizeNoise } from "$lib/noise.js";
-import { measureGrid, sizeCanvas, renderGrid } from "$lib/renderer.js";
+import { measureGrid, sizeCanvas } from "$lib/renderer.js";
 import { pruneHeaders, fadeAllHeaders, spawnHeader, renderHeaders } from "$lib/headers.js";
+import { randomMode } from "$lib/modes/index.js";
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -23,10 +23,6 @@ let animFrameId;
 let lastDirectionChange = 0;
 
 let cols = 0, rows = 0, charWidth = 0;
-/** @type {Uint16Array} */
-let charIndices;
-/** @type {Float32Array} */
-let shuffleTimers;
 /** @type {number[]} */
 let baseColor = [0, 255, 70];
 let fontFamily = 'monospace';
@@ -34,6 +30,11 @@ let fontFamily = 'monospace';
 let colorStrings = [];
 /** @type {import('$lib/headers.js').Header[]} */
 let activeHeaders = [];
+
+/** @type {{ name: string, init: Function, update: Function, render: Function }} */
+let currentMode;
+/** @type {any} */
+let modeState;
 
 function init() {
   ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
@@ -47,11 +48,12 @@ function init() {
   ctx.font = `${FONT_SIZE}px ${fontFamily}`;
   ctx.textBaseline = 'top';
 
-  const arrays = createCharArrays(cols * rows);
-  charIndices = arrays.charIndices;
-  shuffleTimers = arrays.shuffleTimers;
-
   colorStrings = buildColorStrings(baseColor);
+
+  if (!currentMode) {
+    currentMode = randomMode();
+  }
+  modeState = currentMode.init(ctx, noise, cols, rows, colorStrings, fontFamily);
 }
 
 /** @param {number} timestamp */
@@ -66,8 +68,9 @@ function animate(timestamp) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  renderGrid(ctx, noise, { cols, rows, charWidth, charIndices, shuffleTimers },
-    { x: offsetX, y: offsetY }, colorStrings, fontFamily, dt);
+  const offset = { x: offsetX, y: offsetY };
+  currentMode.update(modeState, dt, offset, noise, cols, rows);
+  currentMode.render(ctx, modeState, noise, cols, rows, offset, colorStrings, fontFamily, dt);
 
   const now = performance.now();
   activeHeaders = pruneHeaders(activeHeaders, now);
@@ -92,19 +95,16 @@ function randomize_direction() {
   colorStrings = buildColorStrings(baseColor);
 
   const grid = measureGrid(ctx, fontFamily);
-  if (grid.cols !== cols || grid.rows !== rows) {
-    cols = grid.cols;
-    rows = grid.rows;
-    charWidth = grid.charWidth;
-    sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
-    ctx.font = `${FONT_SIZE}px ${fontFamily}`;
-    ctx.textBaseline = 'top';
-    const arrays = createCharArrays(cols * rows);
-    charIndices = arrays.charIndices;
-    shuffleTimers = arrays.shuffleTimers;
-  } else {
-    charWidth = grid.charWidth;
-  }
+  cols = grid.cols;
+  rows = grid.rows;
+  charWidth = grid.charWidth;
+  sizeCanvas(canvas, cols, grid.cellW, rows, grid.cellH);
+  ctx.font = `${FONT_SIZE}px ${fontFamily}`;
+  ctx.textBaseline = 'top';
+
+  // Switch to a new random mode
+  currentMode = randomMode(currentMode.name);
+  modeState = currentMode.init(ctx, noise, cols, rows, colorStrings, fontFamily);
 
   fadeAllHeaders(activeHeaders, now);
   activeHeaders.push(spawnHeader(ctx, canvas.width, canvas.height, fontFamily));
