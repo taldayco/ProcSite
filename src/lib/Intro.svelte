@@ -1,6 +1,6 @@
 <script>
-  /** @type {{ baseColor: number[], ondone?: () => void }} */
-  let { baseColor, ondone = () => {} } = $props();
+  /** @type {{ baseColor: number[], ondone?: () => void, onkill?: () => void }} */
+  let { baseColor, ondone = () => {}, onkill = () => {} } = $props();
 
   // Animation stage: 'hidden' | 'fadein' | 'intro' | 'dialogue'
   let stage = $state('hidden');
@@ -29,6 +29,7 @@
    *   text?: string,
    *   buttons?: { label: string, next: string }[],
    *   next?: string,
+   *   death?: boolean,
    * }} DialogueNode
    */
 
@@ -51,15 +52,54 @@
         { label: '...', next: 'dots2_stub' },
       ],
     }],
-    ['sure_stub', { id: 'sure_stub' }],
-    ['fu_stub', { id: 'fu_stub' }],
-    ['dots_stub', { id: 'dots_stub' }],
-    ['dots2_stub', { id: 'dots2_stub' }],
+    ['sure_stub', {
+      id: 'sure_stub',
+      text: 'yay!',
+      next: 'sure_stub_2',
+    }],
+    ['sure_stub_2', {
+      id: 'sure_stub_2',
+      text: './/v//.',
+    }],
+    ['fu_stub', {
+      id: 'fu_stub',
+      text: 'Uh oh.',
+      next: 'fu_stub_2',
+    }],
+    ['fu_stub_2', {
+      id: 'fu_stub_2',
+      text: 'Bad choice Neto.',
+      death: true,
+    }],
+    ['dots_stub', {
+      id: 'dots_stub',
+      text: '...',
+      buttons: [
+        { label: '...', next: 'dots_stub_2' },
+      ],
+    }],
+    ['dots_stub_2', {
+      id: 'dots_stub_2',
+      blink: true,
+      text: 'fine.',
+    }],
+    ['dots2_stub', {
+      id: 'dots2_stub',
+      text: '...',
+      buttons: [
+        { label: '...', next: 'dots2_stub_2' },
+      ],
+    }],
+    ['dots2_stub_2', {
+      id: 'dots2_stub_2',
+      blink: true,
+      text: 'fine.',
+    }],
     ['who_blink', {
       id: 'who_blink',
       blink: true,
       title: { text: '[OVERLORD]', color: 'red' },
-      text: 'I bet you\'re all like "what\'s up with this weird website?", right?',
+      text: 'Haha.',
       buttons: [
         { label: '...', next: 'who_2' },
       ],
@@ -67,31 +107,61 @@
     ['who_2', {
       id: 'who_2',
       eyeState: 'closed',
-      text: "I hear you're used to working with your hands.",
+      text: "I bet you\'re all like \"what\'s up with this weird website?\", right?.",
       next: 'who_3',
     }],
     ['who_3', {
       id: 'who_3',
-      eyeState: 'open',
-      text: 'If you want to stay in this business, you have to get with the times.',
+      eyeState: 'closed',
+      text: ":P.",
       next: 'who_4',
     }],
     ['who_4', {
       id: 'who_4',
       eyeState: 'closed',
-      text: 'Security is too tight these days... well, everywhere except the internet.',
+      text: "I heard you're good with your hands.",
       next: 'who_5',
     }],
     ['who_5', {
       id: 'who_5',
       eyeState: 'open',
-      text: "So, I'm going to show you something cool.",
+      text: 'That was important back in the day.',
       next: 'who_6',
     }],
     ['who_6', {
       id: 'who_6',
-      text: 'a re-invention of the wheel, if you will',
+      eyeState: 'open',
+      text: 'But, if you want to stay in this business, you have to get with the times.',
+      next: 'who_7',
     }],
+    ['who_7', {
+      id: 'who_7',
+      eyeState: 'closed',
+      text: 'Security is tight everywere these days.',
+      next: 'who_8',
+    }],
+    ['who_8', {
+      id: 'who_8',
+      eyeState: 'closed',
+      text: 'Well, everywhere except the internet.',
+      next: 'who_9',
+    }],
+    ['who_9', {
+      id: 'who_9',
+      eyeState: 'open',
+      text: "So, I'm going to show you something cool in exchange for a small favor from you.",
+      next: 'who_10',
+    }],
+    ['who_10', {
+      id: 'who_10',
+      text: 'People in our line of work are calling it a re-invention of the wheel.',
+      next: 'who_11',
+    }],
+    ['who_11', {
+      id: 'who_11',
+      text: 'lol.',
+    }],
+
   ]);
 
   /** @param {number} ms */
@@ -160,7 +230,11 @@
       await wait(800);
       stage = 'hidden';
       await wait(500);
-      ondone();
+      if (node.death) {
+        onkill();
+      } else {
+        ondone();
+      }
     }
   }
 

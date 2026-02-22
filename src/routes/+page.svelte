@@ -159,7 +159,6 @@ function animate(timestamp) {
     }
   }
 
-  // Effects
   updateEffects(effectsState, dt);
 
   // Decoding phase: fire randomize bursts, then wait for final decode
@@ -189,7 +188,7 @@ function animate(timestamp) {
   }
 
   // Kill auto-reset: after DEATH header decodes + 200ms, return to intro
-  if (killHeaderTime > 0 && performance.now() - killHeaderTime >= DECODE_DURATION + 200) {
+  if (killHeaderTime > 0 && performance.now() - killHeaderTime >= DECODE_DURATION + 600) {
     phase = 'intro';
     effectsState.clearZone = null;
     killHeaderTime = 0;
@@ -358,7 +357,7 @@ onMount(() => {
     randomize_direction();
     decodeStartTime = performance.now();
     randomizeFired = 1;
-  }} />
+  }} onkill={kill_effect} />
 {:else if phase === 'game'}
   <Minigame {baseColor} decodedWord={lastDecodedWord} ondetection={randomize_direction} onkill={kill_effect} />
 {/if}
