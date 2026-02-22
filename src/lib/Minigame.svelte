@@ -163,10 +163,8 @@
     tick().then(() => realInputEl?.focus());
 
     const layerSchedule = [
-      { delay: 5000,  layer: 'hat' },
       { delay: 12000, layer: 'bass' },
       { delay: 25000, layer: 'synth' },
-      { delay: 40000, layer: 'arp' },
     ];
 
     const timers = layerSchedule.map(({ delay, layer }) =>

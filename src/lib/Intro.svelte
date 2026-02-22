@@ -257,8 +257,6 @@
     clickCount++;
     if (clickCount === 1) {
       addLayer('kick');
-    } else if (clickCount === 2) {
-      addLayer('hat');
     }
     // Fade out buttons
     buttonsVisible = currentButtons.map(() => false);
