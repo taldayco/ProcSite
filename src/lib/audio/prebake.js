@@ -68,6 +68,25 @@ register('humanize', (amt, pat) => {
     });
   }).withValue((v) => ({ ...v, velocity: (v.velocity ?? 1) + 0.5 * amtC * (2 * Math.random() - 1) }));
 });
+
+// pad — warm sawtooth pad with slow ADSR
+register('pad', (pat) =>
+  pat.s('sawtooth').attack(.3).decay(.8).sustain(.6).release(.5)
+    .lpf(1800).lpq(1).detune(4)
+);
+
+// softacid — tamed acid bass (lower resonance than acid)
+register('softacid', (pat) =>
+  pat.s('supersaw').detune(.3).unison(1)
+    .lpf(200).lpsustain(0.15).lpd(.25).lpenv(1.5).lpq(4)
+);
+
+// shimmer — combined reverb + delay for atmosphere (0-1)
+register('shimmer', (amt, pat) => {
+  amt = reify(amt);
+  return pat.room(amt).roomsize(amt.mul(6)).delay(amt.mul(.4))
+    .delayfeedback(amt.mul(.3)).delaytime(amt.mul(.15));
+});
 `;
 
 export const WINDOW_FUNCTIONS = `

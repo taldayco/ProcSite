@@ -6,16 +6,16 @@ let repl = null;
 let initPromise = null;
 
 const LAYERS = {
-  // FM kick with pitch envelope
-  kick: `note("c1 c1 c1 c1").dx(12, 3, 1).gain(0.3).dec(.15)`,
-  // Noise hi-hat with organic timing
-  hat: `stack(noisehat(16, 4, .04, .1)).struct("x(5,8)").gain(0.3).humanize(0.15)`,
-  // Acid bassline with filter sweep
-  bass: `note("c2 [~ c2] bb1 [ab1 c2]").acid().acidenv(0.6).gain(0.4).slow(2)`,
-  // FM synth chords with delay
-  synth: `note("c3 eb3 g3 bb3").dx(6, 1.5, 3).rlpf(0.4).dly(0.3).gain(0.25).slow(4)`,
-  // Fast zap arps with trancegate
-  arp: `note("c4 eb4 g4 bb4 c5 bb4 g4 eb4").dx(4, 2, 4).tgate(0.7).dly(0.2).gain(0.2)`,
+  // Deep warm kick: gentle FM, sub-bass weight, longer decay
+  kick: `note("c1 c1 c1 c1").dx(3, 0.8, 1).gain(0.28).dec(.25).lpf(200)`,
+  // Crisp hat: fewer segments, slower modulation, tamed high end
+  hat: `stack(noisehat(8, 1.5, .06, .15)).struct("x(5,8)").gain(0.15).humanize(0.1).lpf(8000)`,
+  // Tamed acid bass: lower resonance, gentler envelope, breathing room
+  bass: `note("c2 [~ c2] bb1 [~ ab1]").softacid().acidenv(0.25).gain(0.22).slow(2)`,
+  // Warm Cm7 pad chord with shimmer
+  synth: `note("[c3,eb3,g3,bb3]").pad().shimmer(0.5).rlpf(0.35).gain(0.12).slow(4)`,
+  // Gentle shimmering arp: soft FM, atmospheric delay, no trancegate
+  arp: `note("c4 eb4 g4 bb4 c5 bb4 g4 eb4").dx(1.5, 0.5, 1).shimmer(0.4).rlpf(0.3).gain(0.08)`,
 };
 
 const LAYER_ORDER = ["kick", "hat", "bass", "synth", "arp"];
