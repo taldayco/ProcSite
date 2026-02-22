@@ -1,4 +1,4 @@
-# ProcSite
+# ProcSite - Written for the Crimson Code Hackathon
 
 Website: https://procsite.thomasconrod.workers.dev/
 
