@@ -44,6 +44,8 @@ export function generateName(typeInt) {
  *   type: number,
  *   state: number,
  *   isTarget: boolean,
+ *   extracted: boolean,
+ *   ice: string|null,
  *   edges: number[],
  * }} Node
  */
@@ -86,6 +88,8 @@ export function generateNetwork() {
       type: types[i],
       state: NodeState.Undiscovered,
       isTarget: false,
+      extracted: false,
+      ice: null,
       edges: [],
     });
   }
@@ -120,6 +124,41 @@ export function generateNetwork() {
   }
   for (let i = 0; i < 3 && i < candidates.length; i++) {
     nodes[candidates[i]].isTarget = true;
+  }
+
+  // Guarantee minimum Server nodes based on network size
+  const minServers = count <= 10 ? 1 : count <= 13 ? 2 : 3;
+  let serverCount = nodes.filter(n => n.type === NodeType.Server).length;
+  if (serverCount < minServers) {
+    const convertible = nodes
+      .filter(n => n.type !== NodeType.Overlord && !n.isTarget && n.type !== NodeType.Server)
+      .map(n => n.id);
+    for (let i = convertible.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [convertible[i], convertible[j]] = [convertible[j], convertible[i]];
+    }
+    for (let i = 0; i < convertible.length && serverCount < minServers; i++) {
+      const n = nodes[convertible[i]];
+      n.type = NodeType.Server;
+      n.name = generateName(NodeType.Server);
+      while (usedNames.has(n.name)) n.name = generateName(NodeType.Server);
+      usedNames.add(n.name);
+      serverCount++;
+    }
+  }
+
+  // Assign ICE traps to 2-4 random non-Overlord, non-target nodes
+  const iceTypes = ['drain', 'lock', 'alert'];
+  const iceCount = 2 + Math.floor(Math.random() * 3); // 2-4
+  const iceCandidates = nodes
+    .filter(n => n.type !== NodeType.Overlord && !n.isTarget)
+    .map(n => n.id);
+  for (let i = iceCandidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [iceCandidates[i], iceCandidates[j]] = [iceCandidates[j], iceCandidates[i]];
+  }
+  for (let i = 0; i < iceCount && i < iceCandidates.length; i++) {
+    nodes[iceCandidates[i]].ice = iceTypes[Math.floor(Math.random() * iceTypes.length)];
   }
 
   return { nodes };
@@ -160,4 +199,39 @@ function addEdge(nodes, a, b) {
  */
 function hasEdge(node, target) {
   return node.edges.includes(target);
+}
+
+/**
+ * BFS shortest path from startId to endId. Returns array of node IDs (path), or empty if unreachable.
+ * @param {Network} net
+ * @param {number} startId
+ * @param {number} endId
+ * @returns {number[]}
+ */
+export function bfs(net, startId, endId) {
+  if (startId === endId) return [startId];
+  const visited = new Set([startId]);
+  /** @type {Map<number, number>} */
+  const parent = new Map();
+  const queue = [startId];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const neighbor of net.nodes[current].edges) {
+      if (visited.has(neighbor)) continue;
+      visited.add(neighbor);
+      parent.set(neighbor, current);
+      if (neighbor === endId) {
+        // Reconstruct path
+        const path = [endId];
+        let node = endId;
+        while (node !== startId) {
+          node = parent.get(node);
+          path.unshift(node);
+        }
+        return path;
+      }
+      queue.push(neighbor);
+    }
+  }
+  return [];
 }

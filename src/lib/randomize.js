@@ -9,8 +9,9 @@ import { randomMode } from "$lib/modes/index.js";
  * Randomizes direction, noise, color, font, grid, mode, and headers.
  * Mutates the state object in place and returns it.
  * @param {object} state
+ * @param {{ skipHeaders?: boolean }} [options]
  */
-export function randomize(state) {
+export function randomize(state, options = {}) {
   const now = performance.now();
   if (now - state.lastDirectionChange < 300) return state;
   state.lastDirectionChange = now;
@@ -37,8 +38,10 @@ export function randomize(state) {
   state.currentMode = randomMode(state.currentMode.name);
   state.modeState = state.currentMode.init(state.ctx, state.noise, state.cols, state.rows, state.colorStrings, state.fontFamily);
 
-  fadeAllHeaders(state.activeHeaders, now);
-  state.activeHeaders.push(spawnHeader(state.ctx, state.canvas.width, state.canvas.height, state.fontFamily));
+  if (!options.skipHeaders) {
+    fadeAllHeaders(state.activeHeaders, now);
+    state.activeHeaders.push(spawnHeader(state.ctx, state.canvas.width, state.canvas.height, state.fontFamily));
+  }
 
   return state;
 }

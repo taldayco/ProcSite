@@ -1,5 +1,5 @@
 import { NodeType, NodeState, NodeTypeNames, NodeTypeCost, generateNetwork, nodeByName, getNode } from './network.js';
-import { newPlayer, isAlive, loseReason, newOverlord, overlordCheck } from './player.js';
+import { newPlayer, isAlive, loseReason, newOverlord, overlordCheck, spawnTrace, moveTraces, newRival, moveRival } from './player.js';
 
 export const EntryType = {
   System: 'system',
@@ -19,9 +19,12 @@ export const EntryType = {
  *   network: import('./network.js').Network,
  *   player: import('./player.js').Player,
  *   overlord: import('./player.js').OverlordState,
+ *   traces: import('./player.js').Trace[],
+ *   rival: import('./player.js').Rival,
  *   won: boolean,
  *   lost: boolean,
  *   killed: boolean,
+ *   devCheat: boolean,
  * }} GameState
  */
 
@@ -33,9 +36,13 @@ export function newGameState() {
     network,
     player,
     overlord: newOverlord(),
+    traces: [],
+    rival: newRival(network, player.currentNode),
     won: false,
     lost: false,
     killed: false,
+    devCheat: false,
+    _justHopped: false,
   };
 }
 
@@ -77,8 +84,16 @@ export function execute(gs, input) {
     case 'spike':
       entries.push(...cmdSpike(gs));
       break;
+    case 'extract':
+      entries.push(...cmdExtract(gs));
+      break;
     case 'cloak':
       entries.push(...cmdCloak(gs));
+      break;
+    case 'dev_cheat':
+      gs.won = true;
+      gs.devCheat = true;
+      entries.push({ text: '>> DEV CHEAT: AUTO-WIN', type: EntryType.Success });
       break;
     case 'sudo':
       if (args.join(' ').toLowerCase() === 'rm -rf user') {
@@ -91,11 +106,17 @@ export function execute(gs, input) {
   }
 
   // Decrement cloak
-  if (gs.player.cloakTurns > 0 && cmd !== 'help' && cmd !== 'status' && cmd !== 'map') {
+  const isAction = ['hop', 'crack', 'scan', 'extract', 'cloak', 'spike'].includes(cmd);
+  if (gs.player.cloakTurns > 0 && isAction) {
     gs.player.cloakTurns--;
     if (gs.player.cloakTurns === 0) {
       entries.push({ text: '>> Cloak expired.', type: EntryType.Warning });
     }
+  }
+
+  // Post-turn effects for action commands
+  if (isAction) {
+    entries.push(...postTurnEffects(gs));
   }
 
   // Check lose
@@ -117,6 +138,7 @@ function cmdHelp() {
     '  hop <node> - Move to a connected node (1 DATA)',
     '  crack  - Hack current node (variable DATA cost)',
     '  spike  - Plant spike on cracked target (free)',
+    '  extract - Extract data from cracked Server (free)',
     '  cloak  - Reduce detection for 3 turns (3 DATA)',
     '  sudo rm -rf user - undefined',
   ].map(text => ({ text, type: EntryType.Info }));
@@ -129,8 +151,10 @@ function cmdStatus(gs) {
   if (gs.player.cloakTurns > 0) {
     cloak = ` | CLOAK: ${gs.player.cloakTurns} turns`;
   }
+  const traces = gs.traces.length > 0 ? ` | TRACES: ${gs.traces.length}` : '';
+  const rival = gs.rival ? ` | RIVAL: ${gs.rival.extractedCount} extracted` : '';
   return [{
-    text: `DATA: ${gs.player.data} | DETECTION: ${Math.floor(gs.player.detection * 100)}% | NODE: ${node.name} | TARGETS: ${gs.player.spikeCount}/3${cloak}`,
+    text: `DATA: ${gs.player.data} | DETECTION: ${Math.floor(gs.player.detection * 100)}% | NODE: ${node.name} | TARGETS: ${gs.player.spikeCount}/3${cloak}${traces}${rival}`,
     type: EntryType.Info,
   }];
 }
@@ -162,8 +186,12 @@ function cmdMap(gs) {
     else if (n.state === NodeState.Locked) marker = '[X]';
 
     const target = n.isTarget ? ' (TARGET)' : '';
+    const hasTrace = gs.traces.some(t => t.currentNode === n.id) ? ' [!]' : '';
+    const hasRival = gs.rival && gs.rival.currentNode === n.id ? ' [R]' : '';
+    const hasIce = n.ice && n.state !== NodeState.Cracked && n.state !== NodeState.Spiked ? ' [ICE]' : '';
+    const extracted = n.extracted ? ' (EXTRACTED)' : '';
     entries.push({
-      text: `${marker} ${n.name} [${NodeTypeNames[n.type]}]${target}`,
+      text: `${marker} ${n.name} [${NodeTypeNames[n.type]}]${target}${extracted}${hasIce}${hasTrace}${hasRival}`,
       type: nodeEntryType(n, gs),
     });
 
@@ -198,8 +226,9 @@ function cmdScan(gs) {
       en.state = NodeState.Discovered;
       revealed++;
       const target = en.isTarget ? ' (TARGET)' : '';
+      const ice = en.ice ? ' [ICE]' : '';
       entries.push({
-        text: `  Discovered: ${en.name} [${NodeTypeNames[en.type]}]${target}`,
+        text: `  Discovered: ${en.name} [${NodeTypeNames[en.type]}]${target}${ice}`,
         type: EntryType.Success,
       });
     }
@@ -248,6 +277,7 @@ function cmdHop(gs, args) {
   gs.player.data--;
   gs.player.currentNode = target.id;
   gs.player.hopCount++;
+  gs._justHopped = true;
 
   /** @type {HistoryEntry[]} */
   const entries = [{
@@ -298,6 +328,35 @@ function cmdCrack(gs) {
     });
   }
 
+  // ICE trap trigger
+  if (node.ice) {
+    switch (node.ice) {
+      case 'drain':
+        gs.player.data -= 2;
+        if (gs.player.data < 0) gs.player.data = 0;
+        entries.push({ text: '>> ICE TRAP [DRAIN]: -2 DATA!', type: EntryType.Error });
+        break;
+      case 'lock': {
+        const adjacent = node.edges.filter(eid => {
+          const adj = getNode(gs.network, eid);
+          return adj && adj.state !== NodeState.Locked && adj.state !== NodeState.Spiked && adj.state !== NodeState.Undiscovered;
+        });
+        if (adjacent.length > 0) {
+          const lockTarget = getNode(gs.network, adjacent[Math.floor(Math.random() * adjacent.length)]);
+          lockTarget.state = NodeState.Locked;
+          entries.push({ text: `>> ICE TRAP [LOCK]: ${lockTarget.name} has been locked!`, type: EntryType.Error });
+        }
+        break;
+      }
+      case 'alert':
+        gs.player.detection += 0.15;
+        if (gs.player.detection > 1.0) gs.player.detection = 1.0;
+        entries.push({ text: '>> ICE TRAP [ALERT]: +15% DETECTION!', type: EntryType.Error });
+        break;
+    }
+    node.ice = null;
+  }
+
   return entries;
 }
 
@@ -342,6 +401,61 @@ function cmdCloak(gs) {
     text: `Cloak activated for 3 turns. -3 DATA (${gs.player.data} remaining)`,
     type: EntryType.Success,
   }];
+}
+
+/** @param {GameState} gs */
+function cmdExtract(gs) {
+  const node = getNode(gs.network, gs.player.currentNode);
+
+  if (node.type !== NodeType.Server) {
+    return [{ text: 'This is not a Server node.', type: EntryType.Error }];
+  }
+  if (node.state !== NodeState.Cracked && node.state !== NodeState.Spiked) {
+    return [{ text: 'Node must be cracked before extracting.', type: EntryType.Error }];
+  }
+  if (node.extracted) {
+    return [{ text: 'Data already extracted from this server.', type: EntryType.Error }];
+  }
+
+  const reward = 3 + Math.floor(Math.random() * 3); // 3-5
+  gs.player.data += reward;
+  node.extracted = true;
+
+  return [{
+    text: `Data extracted from ${node.name}! +${reward} DATA (${gs.player.data} total)`,
+    type: EntryType.Success,
+  }];
+}
+
+/**
+ * Post-turn effects: move traces, check trace contact, spawn traces, move rival.
+ * @param {GameState} gs
+ * @returns {HistoryEntry[]}
+ */
+function postTurnEffects(gs) {
+  /** @type {HistoryEntry[]} */
+  const entries = [];
+
+  // Move traces toward player
+  const traceMessages = moveTraces(gs);
+  for (const msg of traceMessages) {
+    entries.push({ text: msg, type: EntryType.Error });
+  }
+
+  // Spawn new trace every 4 hops while Overlord is active and not neutralized
+  if (!gs.overlord.neutralized && gs.player.hopCount > 0 && gs.player.hopCount % 4 === 0 && gs._justHopped) {
+    spawnTrace(gs);
+    entries.push({ text: '>> New TRACE PROGRAM deployed from Overlord!', type: EntryType.Warning });
+  }
+  gs._justHopped = false;
+
+  // Move rival
+  const rivalMessages = moveRival(gs);
+  for (const msg of rivalMessages) {
+    entries.push({ text: msg, type: EntryType.Warning });
+  }
+
+  return entries;
 }
 
 /** @param {GameState} gs */

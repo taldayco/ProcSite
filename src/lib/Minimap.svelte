@@ -1,8 +1,8 @@
 <script>
   import { NodeType, NodeState } from './game/network.js';
 
-  /** @type {{ network: import('./game/network.js').Network, player: import('./game/player.js').Player, baseColor: number[] }} */
-  let { network, player, baseColor } = $props();
+  /** @type {{ network: import('./game/network.js').Network, player: import('./game/player.js').Player, baseColor: number[], traces: import('./game/player.js').Trace[], rival: import('./game/player.js').Rival }} */
+  let { network, player, baseColor, traces = [], rival } = $props();
 
   let colorRgb = $derived(`rgb(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]})`);
   let colorDim = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.3)`);
@@ -194,14 +194,14 @@
     });
 
     // Force simulation: 50 iterations
-    const repulsion = 800;
+    const repulsion = 2000;
     const attraction = 0.05;
     const damping = 0.9;
 
     /** @type {{ x: number, y: number }[]} */
     const vel = pos.map(() => ({ x: 0, y: 0 }));
 
-    for (let iter = 0; iter < 50; iter++) {
+    for (let iter = 0; iter < 80; iter++) {
       // Repulsion between all pairs
       for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) {
@@ -475,9 +475,60 @@
               stroke-width="2"
             />
           {/if}
+
+          <!-- ICE indicator -->
+          {#if node.ice && node.state !== NodeState.Cracked && node.state !== NodeState.Spiked}
+            <text
+              x={positions[node.id].x + NODE_R + 2}
+              y={positions[node.id].y - NODE_R + 2}
+              text-anchor="start"
+              font-size="7"
+              font-family="monospace"
+              font-weight="bold"
+              fill="#ff4444"
+            >!</text>
+          {/if}
+
+          <!-- Extracted indicator -->
+          {#if node.extracted}
+            <text
+              x={positions[node.id].x}
+              y={positions[node.id].y + 3}
+              text-anchor="middle"
+              font-size="7"
+              font-family="monospace"
+              font-weight="bold"
+              fill="rgba(136, 136, 136, 0.6)"
+            >E</text>
+          {/if}
         </g>
       {/if}
     {/each}
+
+    <!-- Trace markers -->
+    {#each traces as trace}
+      {#if positions[trace.currentNode]}
+        <circle
+          cx={positions[trace.currentNode].x}
+          cy={positions[trace.currentNode].y}
+          r="3"
+          fill="#ff4444"
+          class="trace-pulse"
+        />
+      {/if}
+    {/each}
+
+    <!-- Rival marker -->
+    {#if rival && positions[rival.currentNode]}
+      {@const rx = positions[rival.currentNode].x}
+      {@const ry = positions[rival.currentNode].y}
+      <path
+        d="M{rx},{ry - 4} L{rx + 3},{ry} L{rx},{ry + 4} L{rx - 3},{ry} Z"
+        fill="#ffaa00"
+        stroke="#ffaa00"
+        stroke-width="0.5"
+      />
+    {/if}
   </svg>
 </div>
 
@@ -538,5 +589,14 @@
   @keyframes ping {
     0%   { r: 12; opacity: 0.8; }
     100% { r: 20; opacity: 0; }
+  }
+
+  .trace-pulse {
+    animation: trace-blink 0.8s ease-in-out infinite;
+  }
+
+  @keyframes trace-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
   }
 </style>

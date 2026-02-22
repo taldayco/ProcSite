@@ -4,8 +4,8 @@
   import { getNode } from './game/network.js';
   import Minimap from './Minimap.svelte';
 
-  /** @type {{ baseColor: number[], decodedWord?: string, ondetection?: () => void, onkill?: () => void }} */
-  let { baseColor, decodedWord = '', ondetection, onkill } = $props();
+  /** @type {{ baseColor: number[], decodedWord?: string, ondetection?: () => void, onkill?: () => void, onnextlevel?: () => void }} */
+  let { baseColor, decodedWord = '', ondetection, onkill, onnextlevel } = $props();
 
   let colorRgb = $derived(`rgb(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]})`);
   let colorGlow = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.6)`);
@@ -87,9 +87,13 @@
     history = [...history, ...entries];
 
     if ((gs.won || gs.lost) && !gs.killed) {
-      const gameOverEntries = buildGameOverEntries(gs);
-      history = [...history, ...gameOverEntries];
-      phase = 'gameover';
+      if (gs.won && gs.devCheat && onnextlevel) {
+        onnextlevel();
+      } else {
+        const gameOverEntries = buildGameOverEntries(gs);
+        history = [...history, ...gameOverEntries];
+        phase = 'gameover';
+      }
     }
 
     tick().then(() => {
@@ -149,7 +153,7 @@
 </script>
 
 {#if phase !== 'connecting'}
-  <Minimap network={gs.network} player={gs.player} {baseColor} />
+  <Minimap network={gs.network} player={gs.player} traces={gs.traces} rival={gs.rival} {baseColor} />
 {/if}
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

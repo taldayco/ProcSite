@@ -163,6 +163,23 @@ function animate(timestamp) {
 
   // Decoding phase: fire randomize bursts, then wait for final decode
   if (phase === 'decoding') {
+    // Shrink clear zone if it exists (returning from game via dev_cheat)
+    if (effectsState.clearZone) {
+      clearProgress = Math.max(clearProgress - dt / CLEAR_DURATION, 0);
+      const zone = computeFullClearZone();
+      const t = clearProgress;
+      const eased = t * t * (3 - 2 * t);
+      effectsState.clearZone = {
+        centerCol: zone.centerCol,
+        centerRow: zone.centerRow,
+        halfW: zone.halfW * eased,
+        halfH: zone.halfH * eased,
+      };
+      if (clearProgress <= 0) {
+        effectsState.clearZone = null;
+      }
+    }
+
     const elapsed = performance.now() - decodeStartTime;
     // Fire additional randomize bursts at each interval
     while (randomizeFired < RANDOMIZE_COUNT && elapsed >= randomizeFired * RANDOMIZE_INTERVAL) {
@@ -245,12 +262,13 @@ function handle_keydown(e) {
   if (e.key === 'Enter') randomize_direction();
 }
 
-function randomize_direction() {
+/** @param {{ skipHeaders?: boolean }} [options] */
+function randomize_direction(options) {
   const state = randomize({
     lastDirectionChange, angle, dx, dy, noise, baseColor, colorMorph,
     fontFamily, ctx, canvas, cols, rows, charWidth, cellW, cellH,
     colorStrings, currentMode, modeState, activeHeaders
-  });
+  }, options);
   ({ lastDirectionChange, angle, dx, dy, colorMorph, fontFamily,
     cols, rows, charWidth, cellW, cellH, currentMode, modeState } = state);
 }
@@ -359,7 +377,12 @@ onMount(() => {
     randomizeFired = 1;
   }} onkill={kill_effect} />
 {:else if phase === 'game'}
-  <Minigame {baseColor} decodedWord={lastDecodedWord} ondetection={randomize_direction} onkill={kill_effect} />
+  <Minigame {baseColor} decodedWord={lastDecodedWord} ondetection={() => randomize_direction({ skipHeaders: true })} onkill={kill_effect} onnextlevel={() => {
+    phase = 'decoding';
+    randomize_direction();
+    decodeStartTime = performance.now();
+    randomizeFired = 1;
+  }} />
 {/if}
 
 <style>
