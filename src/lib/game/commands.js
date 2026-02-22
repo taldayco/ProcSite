@@ -160,6 +160,7 @@ export function execute(gs, input) {
 
   // Check lose
   if (!isAlive(gs.player)) {
+    gs.killed = true;
     gs.lost = true;
   }
 
@@ -528,8 +529,9 @@ function cmdKill(gs) {
 
   gs.player.data -= 2;
   gs.rival = null;
+  gs.player.data += 10;
 
-  return [{ text: `>> RIVAL HACKER eliminated! -2 DATA (${gs.player.data} remaining)`, type: EntryType.Success }];
+  return [{ text: `>> RIVAL HACKER eliminated! +8 DATA net (${gs.player.data} remaining)`, type: EntryType.Success }];
 }
 
 /** @param {GameState} gs */
@@ -549,7 +551,8 @@ function cmdExtract(gs) {
 
   const extractMul = mod.extractMultiplier || 1;
   const rewardMul = mod.rewardMultiplier || 1;
-  const reward = (3 + Math.floor(Math.random() * 3)) * extractMul * rewardMul; // base 3-5
+  const base = Math.min(Math.floor(Math.random() * 8) + Math.floor(Math.random() * 9) + 5, 20);
+  const reward = base * extractMul * rewardMul; // base 5-20, avg ~12.5, 20 is rare (~1.4%)
   gs.player.data += reward;
   node.extracted = true;
 

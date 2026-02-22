@@ -71,7 +71,7 @@ export function loseReason(player) {
 // ── Traces ──
 
 /**
- * @typedef {{ id: number, currentNode: number }} Trace
+ * @typedef {{ id: number, currentNode: number, moveCooldown: number }} Trace
  */
 
 let traceIdCounter = 0;
@@ -83,7 +83,7 @@ let traceIdCounter = 0;
 export function spawnTrace(gs) {
   const overlordNode = gs.network.nodes.find(n => n.type === NodeType.Overlord);
   if (!overlordNode) return;
-  gs.traces.push({ id: traceIdCounter++, currentNode: overlordNode.id });
+  gs.traces.push({ id: traceIdCounter++, currentNode: overlordNode.id, moveCooldown: 2 });
 }
 
 /**
@@ -95,10 +95,37 @@ export function moveTraces(gs) {
   const messages = [];
   const contactDetection = (gs.mod && gs.mod.traceContactDetection) || 0.25;
   for (const trace of gs.traces) {
-    const path = bfs(gs.network, trace.currentNode, gs.player.currentNode);
-    if (path.length > 1) {
-      trace.currentNode = path[1];
+    // Traces move every 2 turns
+    trace.moveCooldown--;
+    if (trace.moveCooldown > 0) {
+      // Still check contact even when not moving
+      if (trace.currentNode === gs.player.currentNode) {
+        gs.player.detection += contactDetection;
+        if (gs.player.detection > 1.0) gs.player.detection = 1.0;
+        const pct = Math.round(contactDetection * 100);
+        messages.push(`>> TRACE PROGRAM reached your node! (+${pct}% DETECTION)`);
+      }
+      continue;
     }
+    trace.moveCooldown = 2;
+
+    // Chase chance scales with detection: 0% at 0 detection, 100% at 50%+ detection
+    const chaseChance = Math.min(gs.player.detection / 0.5, 1);
+
+    if (Math.random() < chaseChance) {
+      // Chase player via BFS
+      const path = bfs(gs.network, trace.currentNode, gs.player.currentNode);
+      if (path.length > 1) {
+        trace.currentNode = path[1];
+      }
+    } else {
+      // Random movement to a neighbor
+      const node = gs.network.nodes[trace.currentNode];
+      if (node.edges.length > 0) {
+        trace.currentNode = node.edges[Math.floor(Math.random() * node.edges.length)];
+      }
+    }
+
     if (trace.currentNode === gs.player.currentNode) {
       gs.player.detection += contactDetection;
       if (gs.player.detection > 1.0) gs.player.detection = 1.0;
