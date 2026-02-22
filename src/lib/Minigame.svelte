@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import { newGameState, execute, buildGameOverEntries, EntryType } from './game/commands.js';
   import { getNode } from './game/network.js';
+  import { getModifier } from './game/modifiers.js';
   import Minimap from './Minimap.svelte';
 
   /** @type {{ baseColor: number[], decodedWord?: string, ondetection?: () => void, onkill?: () => void, onnextlevel?: () => void }} */
@@ -14,8 +15,10 @@
   // 'connecting' | 'active' | 'gameover'
   let phase = $state('connecting');
 
+  let activeMod = $derived(getModifier(decodedWord));
+
   /** @type {import('./game/commands.js').GameState} */
-  let gs = $state(newGameState());
+  let gs = $state(newGameState(decodedWord));
 
   /** @type {import('./game/commands.js').HistoryEntry[]} */
   let history = $state([]);
@@ -54,13 +57,24 @@
 
     // Switch to active
     const startNode = getNode(gs.network, gs.player.currentNode);
-    history = [
+    /** @type {import('./game/commands.js').HistoryEntry[]} */
+    const bootHistory = [
       ...BANNER.map(text => ({ text, type: EntryType.Success })),
       { text: '', type: EntryType.System },
+    ];
+    if (activeMod.name) {
+      bootHistory.push(
+        { text: `>> MODIFIER: ${activeMod.name}`, type: EntryType.Warning },
+        { text: `   ${activeMod.description}`, type: EntryType.Warning },
+        { text: '', type: EntryType.System },
+      );
+    }
+    bootHistory.push(
       { text: `Connected to node: ${startNode.name}`, type: EntryType.Info },
       { text: `DATA: ${gs.player.data} | Type 'help' for commands.`, type: EntryType.Info },
       { text: '', type: EntryType.System },
-    ];
+    );
+    history = bootHistory;
     phase = 'active';
     await tick();
     realInputEl?.focus();
@@ -102,7 +116,7 @@
   }
 
   function playAgain() {
-    gs = newGameState();
+    gs = newGameState(decodedWord);
     history = [];
     bootLines = [];
     booted = false;
@@ -170,12 +184,15 @@
     {:else}
       <!-- Status bar -->
       <div class="status-bar" style="border-bottom-color: {colorDim}; color: {colorRgb};">
-        {#if decodedWord}<span>{decodedWord}</span>{/if}
+        {#if activeMod.name}<span>{activeMod.name}</span>{:else if decodedWord}<span>{decodedWord}</span>{/if}
         <span>DATA: {gs.player.data}</span>
         <span>DETECTION: {Math.floor(gs.player.detection * 100)}%</span>
-        <span>TARGETS: {gs.player.spikeCount}/3</span>
+        <span>TARGETS: {gs.player.spikeCount}/{gs.mod.targetCount || 3}</span>
         {#if gs.player.cloakTurns > 0}
           <span>CLOAK: {gs.player.cloakTurns}</span>
+        {/if}
+        {#if gs.mod.actionLimit}
+          <span>ACTIONS: {gs.actionCount}/{gs.mod.actionLimit}</span>
         {/if}
       </div>
 

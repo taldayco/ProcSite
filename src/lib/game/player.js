@@ -20,9 +20,10 @@ import { NodeType, NodeState, getNode, bfs } from './network.js';
 
 /**
  * @param {import('./network.js').Network} net
+ * @param {import('./modifiers.js').ModifierConfig} [mod]
  * @returns {Player}
  */
-export function newPlayer(net) {
+export function newPlayer(net, mod = {}) {
   const overlordNode = net.nodes.find(n => n.type === NodeType.Overlord);
   const overlordId = overlordNode ? overlordNode.id : -1;
 
@@ -40,11 +41,12 @@ export function newPlayer(net) {
   }
 
   const startID = candidates[Math.floor(Math.random() * candidates.length)];
+  // BREACH sets all to Discovered already, but ensure start node is discovered regardless
   net.nodes[startID].state = NodeState.Discovered;
 
   return {
     data: 10 + Math.floor(Math.random() * 11), // 10-20
-    detection: 0,
+    detection: mod.startDetection || 0,
     currentNode: startID,
     cloakTurns: 0,
     hopCount: 0,
@@ -84,20 +86,22 @@ export function spawnTrace(gs) {
 
 /**
  * Move all traces one step toward the player via BFS.
- * @param {{ network: import('./network.js').Network, player: Player, traces: Trace[] }} gs
+ * @param {{ network: import('./network.js').Network, player: Player, traces: Trace[], mod?: import('./modifiers.js').ModifierConfig }} gs
  * @returns {string[]} warning messages
  */
 export function moveTraces(gs) {
   const messages = [];
+  const contactDetection = (gs.mod && gs.mod.traceContactDetection) || 0.25;
   for (const trace of gs.traces) {
     const path = bfs(gs.network, trace.currentNode, gs.player.currentNode);
     if (path.length > 1) {
       trace.currentNode = path[1];
     }
     if (trace.currentNode === gs.player.currentNode) {
-      gs.player.detection += 0.25;
+      gs.player.detection += contactDetection;
       if (gs.player.detection > 1.0) gs.player.detection = 1.0;
-      messages.push('>> TRACE PROGRAM reached your node! (+25% DETECTION)');
+      const pct = Math.round(contactDetection * 100);
+      messages.push(`>> TRACE PROGRAM reached your node! (+${pct}% DETECTION)`);
     }
   }
   return messages;
@@ -106,47 +110,72 @@ export function moveTraces(gs) {
 // ── Rival Hacker ──
 
 /**
- * @typedef {{ currentNode: number, moveCounter: number, targetServer: number|null, extractedCount: number }} Rival
+ * @typedef {{ currentNode: number, moveCounter: number, targetServer: number|null, extractedCount: number, extractingTurns: number, extractedTargets: number }} Rival
  */
 
 /**
  * @param {import('./network.js').Network} net
  * @param {number} playerStart
+ * @param {import('./modifiers.js').ModifierConfig} [mod]
  * @returns {Rival}
  */
-export function newRival(net, playerStart) {
+export function newRival(net, playerStart, mod = {}) {
   const overlordId = net.nodes.find(n => n.type === NodeType.Overlord)?.id ?? -1;
   const candidates = net.nodes
     .filter(n => n.id !== playerStart && n.id !== overlordId)
     .map(n => n.id);
   const startNode = candidates[Math.floor(Math.random() * candidates.length)];
+  const moveInterval = mod.rivalMoveInterval || 3;
   return {
     currentNode: startNode,
-    moveCounter: 3,
+    moveCounter: moveInterval,
     targetServer: null,
     extractedCount: 0,
+    extractingTurns: 0,
+    extractedTargets: 0,
   };
 }
 
 /**
- * Move the rival toward nearest un-extracted Server. If it arrives, extract it.
- * @param {{ network: import('./network.js').Network, rival: Rival }} gs
+ * Move the rival toward nearest un-extracted target. If it arrives, extract over 2 turns.
+ * @param {{ network: import('./network.js').Network, rival: Rival|null, mod?: import('./modifiers.js').ModifierConfig }} gs
  * @returns {string[]} warning messages
  */
 export function moveRival(gs) {
+  if (!gs.rival) return [];
+
   const rival = gs.rival;
   const messages = [];
+  const moveInterval = (gs.mod && gs.mod.rivalMoveInterval) || 3;
+
+  // If currently extracting, count down instead of moving
+  if (rival.extractingTurns > 0) {
+    rival.extractingTurns--;
+    if (rival.extractingTurns > 0) {
+      const node = gs.network.nodes[rival.targetServer];
+      messages.push(`>> RIVAL HACKER is extracting ${node.name}... (${rival.extractingTurns} turn(s) left)`);
+      return messages;
+    }
+    // Extraction complete
+    const node = gs.network.nodes[rival.targetServer];
+    node.extracted = true;
+    rival.extractedCount++;
+    rival.extractedTargets++;
+    rival.targetServer = null;
+    messages.push(`>> RIVAL HACKER extracted target ${node.name}!`);
+    return messages;
+  }
 
   rival.moveCounter--;
   if (rival.moveCounter > 0) return messages;
 
   // Reset counter
-  rival.moveCounter = 3;
+  rival.moveCounter = moveInterval;
 
-  // Find nearest un-extracted server
+  // Find nearest un-extracted target node
   let bestPath = /** @type {number[]} */ ([]);
   for (const node of gs.network.nodes) {
-    if (node.type === NodeType.Server && !node.extracted) {
+    if (node.isTarget && !node.extracted) {
       const path = bfs(gs.network, rival.currentNode, node.id);
       if (path.length > 0 && (bestPath.length === 0 || path.length < bestPath.length)) {
         bestPath = path;
@@ -158,29 +187,33 @@ export function moveRival(gs) {
     rival.currentNode = bestPath[1];
   }
 
-  // Check if rival is on an un-extracted server
+  // Check if rival is on an un-extracted target — start extracting
   const currentNode = gs.network.nodes[rival.currentNode];
-  if (currentNode.type === NodeType.Server && !currentNode.extracted) {
-    currentNode.extracted = true;
-    rival.extractedCount++;
-    messages.push(`>> RIVAL HACKER extracted data from ${currentNode.name}!`);
+  if (currentNode.isTarget && !currentNode.extracted) {
+    rival.extractingTurns = 2;
+    rival.targetServer = currentNode.id;
+    messages.push(`>> RIVAL HACKER is extracting ${currentNode.name}... (2 turn(s) left)`);
   }
 
   return messages;
 }
 
-/** @returns {OverlordState} */
-export function newOverlord() {
-  return { active: false, neutralized: false };
+/**
+ * @param {import('./modifiers.js').ModifierConfig} [mod]
+ * @returns {OverlordState}
+ */
+export function newOverlord(mod = {}) {
+  return { active: !!mod.overlordImmediate, neutralized: false };
 }
 
 /**
  * @param {OverlordState} overlord
  * @param {Player} player
  * @param {import('./network.js').Network} net
+ * @param {import('./modifiers.js').ModifierConfig} [mod]
  * @returns {string}
  */
-export function overlordCheck(overlord, player, net) {
+export function overlordCheck(overlord, player, net, mod = {}) {
   if (overlord.neutralized) return '';
 
   if (!overlord.active) {
@@ -188,8 +221,9 @@ export function overlordCheck(overlord, player, net) {
     return '';
   }
 
-  // Detection chance: 15% + 8% * floor(hopCount / 3)
-  let chance = 0.15 + 0.08 * Math.floor(player.hopCount / 3);
+  // Detection chance: 15% + 8% * floor(hopCount / 3), scaled by modifier
+  const scaleRate = 0.08 * (mod.overlordScaleMultiplier || 1);
+  let chance = 0.15 + scaleRate * Math.floor(player.hopCount / 3);
   if (player.cloakTurns > 0) chance /= 2;
 
   if (Math.random() >= chance) return '';

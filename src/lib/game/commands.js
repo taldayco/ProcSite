@@ -1,5 +1,6 @@
-import { NodeType, NodeState, NodeTypeNames, NodeTypeCost, generateNetwork, nodeByName, getNode } from './network.js';
+import { NodeType, NodeState, NodeTypeNames, NodeTypeCost, generateNetwork, nodeByName, getNode, rewireEdge } from './network.js';
 import { newPlayer, isAlive, loseReason, newOverlord, overlordCheck, spawnTrace, moveTraces, newRival, moveRival } from './player.js';
+import { getModifier } from './modifiers.js';
 
 export const EntryType = {
   System: 'system',
@@ -21,27 +22,35 @@ export const EntryType = {
  *   overlord: import('./player.js').OverlordState,
  *   traces: import('./player.js').Trace[],
  *   rival: import('./player.js').Rival,
+ *   mod: import('./modifiers.js').ModifierConfig,
  *   won: boolean,
  *   lost: boolean,
  *   killed: boolean,
  *   devCheat: boolean,
+ *   actionCount: number,
  * }} GameState
  */
 
-/** @returns {GameState} */
-export function newGameState() {
-  const network = generateNetwork();
-  const player = newPlayer(network);
+/**
+ * @param {string} [word]
+ * @returns {GameState}
+ */
+export function newGameState(word = '') {
+  const mod = getModifier(word);
+  const network = generateNetwork(mod);
+  const player = newPlayer(network, mod);
   return {
     network,
     player,
-    overlord: newOverlord(),
+    overlord: newOverlord(mod),
     traces: [],
-    rival: newRival(network, player.currentNode),
+    rival: newRival(network, player.currentNode, mod),
+    mod,
     won: false,
     lost: false,
     killed: false,
     devCheat: false,
+    actionCount: 0,
     _justHopped: false,
   };
 }
@@ -64,7 +73,7 @@ export function execute(gs, input) {
 
   switch (cmd) {
     case 'help':
-      entries.push(...cmdHelp());
+      entries.push(...cmdHelp(gs));
       break;
     case 'status':
       entries.push(...cmdStatus(gs));
@@ -90,6 +99,9 @@ export function execute(gs, input) {
     case 'cloak':
       entries.push(...cmdCloak(gs));
       break;
+    case 'kill':
+      entries.push(...cmdKill(gs));
+      break;
     case 'dev_cheat':
       gs.won = true;
       gs.devCheat = true;
@@ -106,7 +118,7 @@ export function execute(gs, input) {
   }
 
   // Decrement cloak
-  const isAction = ['hop', 'crack', 'scan', 'extract', 'cloak', 'spike'].includes(cmd);
+  const isAction = ['hop', 'crack', 'scan', 'extract', 'cloak', 'spike', 'kill'].includes(cmd);
   if (gs.player.cloakTurns > 0 && isAction) {
     gs.player.cloakTurns--;
     if (gs.player.cloakTurns === 0) {
@@ -116,6 +128,28 @@ export function execute(gs, input) {
 
   // Post-turn effects for action commands
   if (isAction) {
+    gs.actionCount++;
+
+    // PULSE: passive detection each action
+    if (gs.mod.passiveDetection) {
+      gs.player.detection += gs.mod.passiveDetection;
+      if (gs.player.detection > 1.0) gs.player.detection = 1.0;
+      const pct = Math.round(gs.mod.passiveDetection * 100);
+      entries.push({ text: `>> HEARTBEAT: +${pct}% passive detection`, type: EntryType.Warning });
+    }
+
+    // FLUX: rewire an edge every N actions
+    if (gs.mod.fluxInterval && gs.actionCount % gs.mod.fluxInterval === 0) {
+      rewireEdge(gs.network);
+      entries.push({ text: '>> FLUX: Network topology shifted! An edge has been rewired.', type: EntryType.Warning });
+    }
+
+    // EPOCH: check action limit
+    if (gs.mod.actionLimit && gs.actionCount >= gs.mod.actionLimit && !gs.won) {
+      gs.player.detection = 1.0;
+      entries.push({ text: `>> TIME\'S UP! Action limit (${gs.mod.actionLimit}) reached.`, type: EntryType.Error });
+    }
+
     entries.push(...postTurnEffects(gs));
   }
 
@@ -127,34 +161,54 @@ export function execute(gs, input) {
   return entries;
 }
 
-/** @returns {HistoryEntry[]} */
-function cmdHelp() {
-  return [
+/**
+ * @param {GameState} gs
+ * @returns {HistoryEntry[]}
+ */
+function cmdHelp(gs) {
+  const mod = gs.mod;
+  const hopCost = mod.hopCost !== undefined ? mod.hopCost : 1;
+  const scanCost = mod.scanCost !== undefined ? mod.scanCost : 1;
+  const cloakCost = mod.freeCloakCost !== undefined ? mod.freeCloakCost : 3;
+  const cm = mod.costMultiplier || 1;
+
+  /** @type {HistoryEntry[]} */
+  const lines = [
     'Available commands:',
     '  help   - Show this help message',
     '  status - Show current stats',
     '  map    - Show discovered network',
-    '  scan   - Reveal connected nodes (1 DATA)',
-    '  hop <node> - Move to a connected node (1 DATA)',
+    `  scan   - Reveal connected nodes (${scanCost * cm} DATA)`,
+    `  hop <node> - Move to a ${mod.hopAnywhere ? 'discovered' : 'connected'} node (${hopCost * cm} DATA)`,
     '  crack  - Hack current node (variable DATA cost)',
     '  spike  - Plant spike on cracked target (free)',
     '  extract - Extract data from cracked Server (free)',
-    '  cloak  - Reduce detection for 3 turns (3 DATA)',
+    `  cloak  - Reduce detection for 3 turns (${cloakCost * cm} DATA)`,
+    '  kill   - Eliminate rival hacker at your node (2 DATA)',
     '  sudo rm -rf user - undefined',
   ].map(text => ({ text, type: EntryType.Info }));
+
+  if (mod.name) {
+    lines.push({ text: '', type: EntryType.System });
+    lines.push({ text: `Active modifier: ${mod.name} — ${mod.description}`, type: EntryType.Warning });
+  }
+
+  return lines;
 }
 
 /** @param {GameState} gs */
 function cmdStatus(gs) {
   const node = getNode(gs.network, gs.player.currentNode);
+  const targetCount = gs.mod.targetCount || 3;
   let cloak = '';
   if (gs.player.cloakTurns > 0) {
     cloak = ` | CLOAK: ${gs.player.cloakTurns} turns`;
   }
   const traces = gs.traces.length > 0 ? ` | TRACES: ${gs.traces.length}` : '';
   const rival = gs.rival ? ` | RIVAL: ${gs.rival.extractedCount} extracted` : '';
+  const epoch = gs.mod.actionLimit ? ` | ACTIONS: ${gs.actionCount}/${gs.mod.actionLimit}` : '';
   return [{
-    text: `DATA: ${gs.player.data} | DETECTION: ${Math.floor(gs.player.detection * 100)}% | NODE: ${node.name} | TARGETS: ${gs.player.spikeCount}/3${cloak}${traces}${rival}`,
+    text: `DATA: ${gs.player.data} | DETECTION: ${Math.floor(gs.player.detection * 100)}% | NODE: ${node.name} | TARGETS: ${gs.player.spikeCount}/${targetCount}${cloak}${traces}${rival}${epoch}`,
     type: EntryType.Info,
   }];
 }
@@ -175,6 +229,7 @@ function nodeEntryType(node, gs) {
 function cmdMap(gs) {
   /** @type {HistoryEntry[]} */
   const entries = [{ text: '=== NETWORK MAP ===', type: EntryType.Info }];
+  const directed = gs.network.directed;
 
   for (const n of gs.network.nodes) {
     if (n.state === NodeState.Undiscovered) continue;
@@ -199,9 +254,14 @@ function cmdMap(gs) {
     for (const eid of n.edges) {
       const en = getNode(gs.network, eid);
       if (en && en.state !== NodeState.Undiscovered) {
-        entries.push({ text: `    |-- ${en.name}`, type: EntryType.System });
+        const arrow = directed ? ' -->' : ' |--';
+        entries.push({ text: `   ${arrow} ${en.name}`, type: EntryType.System });
       }
     }
+  }
+
+  if (directed) {
+    entries.push({ text: '(Edges are ONE-WAY: arrows show direction)', type: EntryType.Warning });
   }
 
   return entries;
@@ -209,11 +269,15 @@ function cmdMap(gs) {
 
 /** @param {GameState} gs */
 function cmdScan(gs) {
-  if (gs.player.data < 1) {
-    return [{ text: 'Insufficient DATA to scan.', type: EntryType.Error }];
+  const mod = gs.mod;
+  const baseCost = mod.scanCost !== undefined ? mod.scanCost : 1;
+  const cost = baseCost * (mod.costMultiplier || 1);
+
+  if (gs.player.data < cost) {
+    return [{ text: `Insufficient DATA to scan. Cost: ${cost}`, type: EntryType.Error }];
   }
 
-  gs.player.data--;
+  gs.player.data -= cost;
   const node = getNode(gs.network, gs.player.currentNode);
   let revealed = 0;
 
@@ -226,7 +290,7 @@ function cmdScan(gs) {
       en.state = NodeState.Discovered;
       revealed++;
       const target = en.isTarget ? ' (TARGET)' : '';
-      const ice = en.ice ? ' [ICE]' : '';
+      const ice = (en.ice && mod.iceRevealed) ? ' [ICE]' : '';
       entries.push({
         text: `  Discovered: ${en.name} [${NodeTypeNames[en.type]}]${target}${ice}`,
         type: EntryType.Success,
@@ -237,7 +301,7 @@ function cmdScan(gs) {
   if (revealed === 0) {
     entries.push({ text: '  No new nodes discovered.', type: EntryType.System });
   }
-  entries.push({ text: `-1 DATA (${gs.player.data} remaining)`, type: EntryType.Warning });
+  entries.push({ text: `-${cost} DATA (${gs.player.data} remaining)`, type: EntryType.Warning });
 
   return entries;
 }
@@ -264,29 +328,44 @@ function cmdHop(gs, args) {
     return [{ text: 'Node is LOCKED. Cannot hop there.', type: EntryType.Error }];
   }
 
-  // Check adjacency
-  const current = getNode(gs.network, gs.player.currentNode);
-  if (!current.edges.includes(target.id)) {
-    return [{ text: 'Node is not connected to current node.', type: EntryType.Error }];
+  const mod = gs.mod;
+
+  // Check adjacency (unless SOCKET: hopAnywhere)
+  if (!mod.hopAnywhere) {
+    const current = getNode(gs.network, gs.player.currentNode);
+    if (!current.edges.includes(target.id)) {
+      return [{ text: 'Node is not connected to current node.', type: EntryType.Error }];
+    }
   }
 
-  if (gs.player.data < 1) {
-    return [{ text: 'Insufficient DATA to hop.', type: EntryType.Error }];
+  const baseCost = mod.hopCost !== undefined ? mod.hopCost : 1;
+  const cost = baseCost * (mod.costMultiplier || 1);
+
+  if (gs.player.data < cost) {
+    return [{ text: `Insufficient DATA to hop. Cost: ${cost}`, type: EntryType.Error }];
   }
 
-  gs.player.data--;
+  gs.player.data -= cost;
   gs.player.currentNode = target.id;
   gs.player.hopCount++;
   gs._justHopped = true;
 
   /** @type {HistoryEntry[]} */
   const entries = [{
-    text: `Hopped to ${target.name}. -1 DATA (${gs.player.data} remaining)`,
+    text: `Hopped to ${target.name}. -${cost} DATA (${gs.player.data} remaining)`,
     type: EntryType.Info,
   }];
 
+  // SOCKET: detection penalty per hop
+  if (mod.hopDetectionPenalty) {
+    gs.player.detection += mod.hopDetectionPenalty;
+    if (gs.player.detection > 1.0) gs.player.detection = 1.0;
+    const pct = Math.round(mod.hopDetectionPenalty * 100);
+    entries.push({ text: `>> DIRECT LINK: +${pct}% detection from hop`, type: EntryType.Warning });
+  }
+
   // Overlord check
-  const msg = overlordCheck(gs.overlord, gs.player, gs.network);
+  const msg = overlordCheck(gs.overlord, gs.player, gs.network, mod);
   if (msg) {
     entries.push({ text: msg, type: EntryType.Error });
   }
@@ -297,6 +376,7 @@ function cmdHop(gs, args) {
 /** @param {GameState} gs */
 function cmdCrack(gs) {
   const node = getNode(gs.network, gs.player.currentNode);
+  const mod = gs.mod;
 
   if (node.state === NodeState.Cracked || node.state === NodeState.Spiked) {
     return [{ text: 'Node already cracked.', type: EntryType.Error }];
@@ -305,7 +385,8 @@ function cmdCrack(gs) {
     return [{ text: 'Node is LOCKED. Cannot crack.', type: EntryType.Error }];
   }
 
-  const cost = NodeTypeCost[node.type];
+  const baseCost = NodeTypeCost[node.type] + (mod.crackCostBonus || 0);
+  const cost = baseCost * (mod.costMultiplier || 1);
   if (gs.player.data < cost) {
     return [{ text: `Insufficient DATA. Crack cost: ${cost}, you have: ${gs.player.data}`, type: EntryType.Error }];
   }
@@ -328,14 +409,22 @@ function cmdCrack(gs) {
     });
   }
 
+  // QUBIT: reveal target status on crack
+  if (mod.hiddenTargets && node._isTargetInternal) {
+    node.isTarget = true;
+    entries.push({ text: '>> TARGET REVEALED: This node is a target!', type: EntryType.Success });
+  }
+
   // ICE trap trigger
   if (node.ice) {
     switch (node.ice) {
-      case 'drain':
-        gs.player.data -= 2;
+      case 'drain': {
+        const drainAmount = 2 * (mod.costMultiplier || 1);
+        gs.player.data -= drainAmount;
         if (gs.player.data < 0) gs.player.data = 0;
-        entries.push({ text: '>> ICE TRAP [DRAIN]: -2 DATA!', type: EntryType.Error });
+        entries.push({ text: `>> ICE TRAP [DRAIN]: -${drainAmount} DATA!`, type: EntryType.Error });
         break;
+      }
       case 'lock': {
         const adjacent = node.edges.filter(eid => {
           const adj = getNode(gs.network, eid);
@@ -363,6 +452,8 @@ function cmdCrack(gs) {
 /** @param {GameState} gs */
 function cmdSpike(gs) {
   const node = getNode(gs.network, gs.player.currentNode);
+  const mod = gs.mod;
+  const targetCount = mod.targetCount || 3;
 
   if (!node.isTarget) {
     return [{ text: 'This node is not a target.', type: EntryType.Error }];
@@ -376,11 +467,11 @@ function cmdSpike(gs) {
 
   /** @type {HistoryEntry[]} */
   const entries = [{
-    text: `SPIKE PLANTED on ${node.name}! (${gs.player.spikeCount}/3)`,
+    text: `SPIKE PLANTED on ${node.name}! (${gs.player.spikeCount}/${targetCount})`,
     type: EntryType.Success,
   }];
 
-  if (gs.player.spikeCount >= 3) {
+  if (gs.player.spikeCount >= targetCount) {
     gs.won = true;
     entries.push({ text: 'ALL TARGETS SPIKED!', type: EntryType.Success });
   }
@@ -390,22 +481,45 @@ function cmdSpike(gs) {
 
 /** @param {GameState} gs */
 function cmdCloak(gs) {
-  if (gs.player.data < 3) {
-    return [{ text: 'Insufficient DATA. Cloak costs 3 DATA.', type: EntryType.Error }];
+  const mod = gs.mod;
+  const baseCost = mod.freeCloakCost !== undefined ? mod.freeCloakCost : 3;
+  const cost = baseCost * (mod.costMultiplier || 1);
+
+  if (gs.player.data < cost) {
+    return [{ text: `Insufficient DATA. Cloak costs ${cost} DATA.`, type: EntryType.Error }];
   }
 
-  gs.player.data -= 3;
+  gs.player.data -= cost;
   gs.player.cloakTurns = 3;
 
   return [{
-    text: `Cloak activated for 3 turns. -3 DATA (${gs.player.data} remaining)`,
+    text: `Cloak activated for 3 turns. -${cost} DATA (${gs.player.data} remaining)`,
     type: EntryType.Success,
   }];
 }
 
 /** @param {GameState} gs */
+function cmdKill(gs) {
+  if (!gs.rival) {
+    return [{ text: 'No rival hacker in this network.', type: EntryType.Error }];
+  }
+  if (gs.rival.currentNode !== gs.player.currentNode) {
+    return [{ text: 'Rival hacker is not at your node.', type: EntryType.Error }];
+  }
+  if (gs.player.data < 2) {
+    return [{ text: 'Insufficient DATA. Kill costs 2 DATA.', type: EntryType.Error }];
+  }
+
+  gs.player.data -= 2;
+  gs.rival = null;
+
+  return [{ text: `>> RIVAL HACKER eliminated! -2 DATA (${gs.player.data} remaining)`, type: EntryType.Success }];
+}
+
+/** @param {GameState} gs */
 function cmdExtract(gs) {
   const node = getNode(gs.network, gs.player.currentNode);
+  const mod = gs.mod;
 
   if (node.type !== NodeType.Server) {
     return [{ text: 'This is not a Server node.', type: EntryType.Error }];
@@ -417,7 +531,9 @@ function cmdExtract(gs) {
     return [{ text: 'Data already extracted from this server.', type: EntryType.Error }];
   }
 
-  const reward = 3 + Math.floor(Math.random() * 3); // 3-5
+  const extractMul = mod.extractMultiplier || 1;
+  const rewardMul = mod.rewardMultiplier || 1;
+  const reward = (3 + Math.floor(Math.random() * 3)) * extractMul * rewardMul; // base 3-5
   gs.player.data += reward;
   node.extracted = true;
 
@@ -435,6 +551,8 @@ function cmdExtract(gs) {
 function postTurnEffects(gs) {
   /** @type {HistoryEntry[]} */
   const entries = [];
+  const mod = gs.mod;
+  const traceInterval = mod.traceSpawnInterval || 4;
 
   // Move traces toward player
   const traceMessages = moveTraces(gs);
@@ -442,8 +560,8 @@ function postTurnEffects(gs) {
     entries.push({ text: msg, type: EntryType.Error });
   }
 
-  // Spawn new trace every 4 hops while Overlord is active and not neutralized
-  if (!gs.overlord.neutralized && gs.player.hopCount > 0 && gs.player.hopCount % 4 === 0 && gs._justHopped) {
+  // Spawn new trace every N hops while Overlord is active and not neutralized
+  if (!gs.overlord.neutralized && gs.player.hopCount > 0 && gs.player.hopCount % traceInterval === 0 && gs._justHopped) {
     spawnTrace(gs);
     entries.push({ text: '>> New TRACE PROGRAM deployed from Overlord!', type: EntryType.Warning });
   }
@@ -453,6 +571,13 @@ function postTurnEffects(gs) {
   const rivalMessages = moveRival(gs);
   for (const msg of rivalMessages) {
     entries.push({ text: msg, type: EntryType.Warning });
+  }
+
+  // Rival extracted too many targets — player loses
+  if (gs.rival && gs.rival.extractedTargets >= 2) {
+    gs.killed = true;
+    gs.lost = true;
+    entries.push({ text: '>> RIVAL HACKER has compromised too many targets! Network lost.', type: EntryType.Error });
   }
 
   return entries;
@@ -467,6 +592,7 @@ function cmdSudoRm(gs) {
 
 /** @param {GameState} gs */
 export function buildGameOverEntries(gs) {
+  const targetCount = gs.mod.targetCount || 3;
   /** @type {HistoryEntry[]} */
   const entries = [{ text: '', type: EntryType.System }];
 
@@ -489,7 +615,7 @@ export function buildGameOverEntries(gs) {
 
   entries.push(
     { text: '', type: EntryType.System },
-    { text: `  Hops: ${gs.player.hopCount}  |  Targets spiked: ${gs.player.spikeCount}/3  |  DATA remaining: ${gs.player.data}`, type: EntryType.Info },
+    { text: `  Hops: ${gs.player.hopCount}  |  Targets spiked: ${gs.player.spikeCount}/${targetCount}  |  DATA remaining: ${gs.player.data}`, type: EntryType.Info },
     { text: '', type: EntryType.System },
   );
 

@@ -47,21 +47,29 @@ export function generateName(typeInt) {
  *   extracted: boolean,
  *   ice: string|null,
  *   edges: number[],
+ *   _isTargetInternal?: boolean,
  * }} Node
  */
 
 /**
- * @typedef {{ nodes: Node[] }} Network
+ * @typedef {{ nodes: Node[], directed?: boolean }} Network
  */
 
-/** @returns {Network} */
-export function generateNetwork() {
-  const count = 8 + Math.floor(Math.random() * 8); // 8-15
+/**
+ * @param {import('./modifiers.js').ModifierConfig} [mod]
+ * @returns {Network}
+ */
+export function generateNetwork(mod = {}) {
+  const minN = mod.minNodes || 8;
+  const maxN = mod.maxNodes || 15;
+  const count = minN + Math.floor(Math.random() * (maxN - minN + 1));
 
   // Decide types: exactly 1 Overlord, rest random
   const types = new Array(count);
   types[0] = NodeType.Overlord;
-  const otherTypes = [NodeType.Server, NodeType.Camera, NodeType.Turret, NodeType.Door, NodeType.Comms, NodeType.Power, NodeType.Firewall];
+  const otherTypes = mod.noServers
+    ? [NodeType.Camera, NodeType.Turret, NodeType.Door, NodeType.Comms, NodeType.Power, NodeType.Firewall]
+    : [NodeType.Server, NodeType.Camera, NodeType.Turret, NodeType.Door, NodeType.Comms, NodeType.Power, NodeType.Firewall];
   for (let i = 1; i < count; i++) {
     types[i] = otherTypes[Math.floor(Math.random() * otherTypes.length)];
   }
@@ -94,6 +102,8 @@ export function generateNetwork() {
     });
   }
 
+  const directed = !!mod.directedEdges;
+
   // Random spanning tree
   const perm = Array.from({ length: count }, (_, i) => i);
   for (let i = count - 1; i > 0; i--) {
@@ -103,47 +113,88 @@ export function generateNetwork() {
   for (let i = 1; i < count; i++) {
     const a = perm[i];
     const b = perm[Math.floor(Math.random() * i)];
-    addEdge(nodes, a, b);
-  }
-
-  // Extra edges
-  const extraEdges = Math.floor(count / 2);
-  for (let e = 0; e < extraEdges; e++) {
-    const a = Math.floor(Math.random() * count);
-    const b = Math.floor(Math.random() * count);
-    if (a !== b && !hasEdge(nodes[a], b)) {
+    if (directed) {
+      addDirectedEdge(nodes, a, b);
+    } else {
       addEdge(nodes, a, b);
     }
   }
 
-  // Mark 3 random non-overlord nodes as targets
+  // Extra edges
+  const edgeMultiplier = mod.extraEdgeMultiplier || 1;
+  const extraEdges = Math.floor(count / 2) * edgeMultiplier;
+  for (let e = 0; e < extraEdges; e++) {
+    const a = Math.floor(Math.random() * count);
+    const b = Math.floor(Math.random() * count);
+    if (a !== b && !hasEdge(nodes[a], b)) {
+      if (directed) {
+        addDirectedEdge(nodes, a, b);
+      } else {
+        addEdge(nodes, a, b);
+      }
+    }
+  }
+
+  // For directed graphs, ensure all nodes are reachable from at least one other node
+  // by adding reverse edges for spanning tree (connectivity guarantee)
+  if (directed) {
+    for (let i = 1; i < count; i++) {
+      const a = perm[i];
+      const b = perm[Math.floor(Math.random() * i)];
+      if (!hasEdge(nodes[b], a)) {
+        addDirectedEdge(nodes, b, a);
+      }
+    }
+  }
+
+  // Mark targets
+  const targetCount = mod.targetCount || 3;
   const candidates = nodes.filter(n => n.type !== NodeType.Overlord).map(n => n.id);
   for (let i = candidates.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
-  for (let i = 0; i < 3 && i < candidates.length; i++) {
+  const nonOverlordTargets = Math.min(mod.overlordIsTarget ? targetCount - 1 : targetCount, candidates.length);
+  for (let i = 0; i < nonOverlordTargets; i++) {
     nodes[candidates[i]].isTarget = true;
+    if (mod.hiddenTargets) {
+      nodes[candidates[i]]._isTargetInternal = true;
+      nodes[candidates[i]].isTarget = false;
+    }
   }
 
-  // Guarantee minimum Server nodes based on network size
-  const minServers = count <= 10 ? 1 : count <= 13 ? 2 : 3;
-  let serverCount = nodes.filter(n => n.type === NodeType.Server).length;
-  if (serverCount < minServers) {
-    const convertible = nodes
-      .filter(n => n.type !== NodeType.Overlord && !n.isTarget && n.type !== NodeType.Server)
-      .map(n => n.id);
-    for (let i = convertible.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [convertible[i], convertible[j]] = [convertible[j], convertible[i]];
+  // KERNEL: Overlord is also a target
+  if (mod.overlordIsTarget) {
+    const overlordNode = nodes.find(n => n.type === NodeType.Overlord);
+    if (overlordNode) {
+      overlordNode.isTarget = true;
+      if (mod.hiddenTargets) {
+        overlordNode._isTargetInternal = true;
+        overlordNode.isTarget = false;
+      }
     }
-    for (let i = 0; i < convertible.length && serverCount < minServers; i++) {
-      const n = nodes[convertible[i]];
-      n.type = NodeType.Server;
-      n.name = generateName(NodeType.Server);
-      while (usedNames.has(n.name)) n.name = generateName(NodeType.Server);
-      usedNames.add(n.name);
-      serverCount++;
+  }
+
+  // Guarantee minimum Server nodes based on network size (skip if noServers)
+  if (!mod.noServers) {
+    const minServers = count <= 10 ? 1 : count <= 13 ? 2 : 3;
+    let serverCount = nodes.filter(n => n.type === NodeType.Server).length;
+    if (serverCount < minServers) {
+      const convertible = nodes
+        .filter(n => n.type !== NodeType.Overlord && !n.isTarget && !n._isTargetInternal && n.type !== NodeType.Server)
+        .map(n => n.id);
+      for (let i = convertible.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [convertible[i], convertible[j]] = [convertible[j], convertible[i]];
+      }
+      for (let i = 0; i < convertible.length && serverCount < minServers; i++) {
+        const n = nodes[convertible[i]];
+        n.type = NodeType.Server;
+        n.name = generateName(NodeType.Server);
+        while (usedNames.has(n.name)) n.name = generateName(NodeType.Server);
+        usedNames.add(n.name);
+        serverCount++;
+      }
     }
   }
 
@@ -151,7 +202,7 @@ export function generateNetwork() {
   const iceTypes = ['drain', 'lock', 'alert'];
   const iceCount = 2 + Math.floor(Math.random() * 3); // 2-4
   const iceCandidates = nodes
-    .filter(n => n.type !== NodeType.Overlord && !n.isTarget)
+    .filter(n => n.type !== NodeType.Overlord && !n.isTarget && !n._isTargetInternal)
     .map(n => n.id);
   for (let i = iceCandidates.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -161,7 +212,20 @@ export function generateNetwork() {
     nodes[iceCandidates[i]].ice = iceTypes[Math.floor(Math.random() * iceTypes.length)];
   }
 
-  return { nodes };
+  // BREACH: all nodes start Discovered
+  if (mod.allDiscovered) {
+    for (const n of nodes) {
+      n.state = NodeState.Discovered;
+    }
+  }
+
+  // CIPHER: reveal ICE traps (mark them visible but still trigger on crack)
+  // The map display already shows [ICE] for nodes with ice — so this is handled naturally
+  // since all nodes with ice will be discoverable and show [ICE] on the map.
+  // CIPHER's iceRevealed effect: during scan, also reveal ice status for adjacent nodes.
+  // This is already shown in map via [ICE] marker — the modifier just means players can see it before cracking.
+
+  return { nodes, directed };
 }
 
 /**
@@ -194,11 +258,66 @@ function addEdge(nodes, a, b) {
 }
 
 /**
+ * @param {Node[]} nodes
+ * @param {number} a
+ * @param {number} b
+ */
+function addDirectedEdge(nodes, a, b) {
+  nodes[a].edges.push(b);
+}
+
+/**
  * @param {Node} node
  * @param {number} target
  */
 function hasEdge(node, target) {
   return node.edges.includes(target);
+}
+
+/**
+ * Rewire one random edge: remove a random edge and add a new random one.
+ * Ensures the graph stays connected by not removing bridge edges if possible.
+ * @param {Network} net
+ */
+export function rewireEdge(net) {
+  const nodes = net.nodes;
+  const count = nodes.length;
+
+  // Collect all edges
+  /** @type {[number, number][]} */
+  const allEdges = [];
+  for (const n of nodes) {
+    for (const eid of n.edges) {
+      if (n.id < eid || net.directed) {
+        allEdges.push([n.id, eid]);
+      }
+    }
+  }
+  if (allEdges.length <= count) return; // Don't remove if too few edges
+
+  // Remove a random non-spanning-tree edge (one where both endpoints have degree > 1)
+  const removable = allEdges.filter(([a, b]) => nodes[a].edges.length > 1 && nodes[b].edges.length > 1);
+  if (removable.length === 0) return;
+
+  const [ra, rb] = removable[Math.floor(Math.random() * removable.length)];
+  nodes[ra].edges = nodes[ra].edges.filter(e => e !== rb);
+  if (!net.directed) {
+    nodes[rb].edges = nodes[rb].edges.filter(e => e !== ra);
+  }
+
+  // Add a new random edge
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const a = Math.floor(Math.random() * count);
+    const b = Math.floor(Math.random() * count);
+    if (a !== b && !hasEdge(nodes[a], b)) {
+      if (net.directed) {
+        addDirectedEdge(nodes, a, b);
+      } else {
+        addEdge(nodes, a, b);
+      }
+      break;
+    }
+  }
 }
 
 /**

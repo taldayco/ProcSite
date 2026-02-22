@@ -10,7 +10,7 @@ export const DECODE_DURATION = 1500;
 export const FADE_DURATION = 500;
 
 export const PALETTES = [
-  [0, 255, 70], // matrix green
+  [0, 255, 70], //  green
   [0, 220, 255], // cyan
   [255, 176, 0], // amber
   [255, 0, 200], // magenta
