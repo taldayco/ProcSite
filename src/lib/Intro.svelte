@@ -1,6 +1,6 @@
 <script>
-  /** @type {{ baseColor: number[] }} */
-  let { baseColor } = $props();
+  /** @type {{ baseColor: number[], ondone?: () => void }} */
+  let { baseColor, ondone = () => {} } = $props();
 
   // Animation stage: 'hidden' | 'fadein' | 'intro' | 'dialogue'
   let stage = $state('hidden');
@@ -155,7 +155,13 @@
       await wait(1500);
       await playNode(node.next);
     }
-    // If neither next nor buttons, hold
+    // If neither next nor buttons, this is a terminal node
+    if (!node.buttons && !node.next) {
+      await wait(800);
+      stage = 'hidden';
+      await wait(500);
+      ondone();
+    }
   }
 
   /** @param {string} nextNodeId */

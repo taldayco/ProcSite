@@ -58,7 +58,7 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
 
       // Map noise to brightness bucket
       const effectMod = cellBrightnessModifier(effectsState, col, row);
-      const bucket = Math.min(Math.floor(noiseVal * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
+      const bucket = Math.max(0, Math.min(Math.floor(noiseVal * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1));
       if (bucket === 0) continue;
 
       buckets[bucket].push(col, row, terrainIdx);

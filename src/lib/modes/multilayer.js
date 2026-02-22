@@ -65,7 +65,7 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
       blended = Math.min(Math.max(blended, 0), 1);
 
       const effectMod = cellBrightnessModifier(effectsState, col, row);
-      const bucket = Math.min(Math.floor(blended * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
+      const bucket = Math.max(0, Math.min(Math.floor(blended * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1));
       if (bucket === 0) continue;
 
       const charIdx = Math.floor(blended * CHARS.length) % CHARS.length;

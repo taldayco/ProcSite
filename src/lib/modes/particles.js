@@ -102,7 +102,7 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
     const noiseVal = sampleNoise(noise, p.x, p.y, offset.x, offset.y);
     const brightness = alpha * (0.3 + noiseVal * 0.7);
     const effectMod = cellBrightnessModifier(effectsState, p.x, p.y);
-    const bucket = Math.min(Math.floor(brightness * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
+    const bucket = Math.max(0, Math.min(Math.floor(brightness * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1));
     if (bucket <= 0) continue;
 
     const drawX = p.x * cellW;

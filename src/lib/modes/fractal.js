@@ -86,7 +86,7 @@ export function render(ctx, state, noise, cols, rows, offset, colorStrings, font
       const blended = fractalVal * 0.6 + noiseVal * 0.4;
 
       const effectMod = cellBrightnessModifier(effectsState, col, row);
-      const bucket = Math.min(Math.floor(blended * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1);
+      const bucket = Math.max(0, Math.min(Math.floor(blended * BRIGHTNESS_LEVELS + effectMod), BRIGHTNESS_LEVELS - 1));
       if (bucket === 0) continue;
 
       const charIdx = Math.floor((fractalVal + noiseVal) * CHARS.length) % CHARS.length;

@@ -9,6 +9,7 @@ export function createEffectsState() {
     rippleSpeed: 25,
     rippleMaxRadius: 30,
     rippleDuration: 1.2,
+    clearZone: null, // { centerCol, centerRow, halfW, halfH } or null
   };
 }
 
@@ -44,6 +45,17 @@ export function updateEffects(state, dt) {
 
 /** @param {object} state @param {number} col @param {number} row @returns {number} */
 export function cellBrightnessModifier(state, col, row) {
+  // Clear zone — suppress all brightness inside the rectangle
+  if (state.clearZone) {
+    const z = state.clearZone;
+    if (
+      col >= z.centerCol - z.halfW && col <= z.centerCol + z.halfW &&
+      row >= z.centerRow - z.halfH && row <= z.centerRow + z.halfH
+    ) {
+      return -Infinity;
+    }
+  }
+
   let mod = 0;
 
   // Cursor glow

@@ -9,6 +9,11 @@ import { randomMode } from "$lib/modes/index.js";
 import { createEffectsState, updateCursor, clearCursor, spawnRipple, updateEffects } from "$lib/effects.js";
 import { randomize } from "$lib/randomize.js";
 import Intro from "$lib/Intro.svelte";
+import Minigame from "$lib/Minigame.svelte";
+
+let phase = $state('intro');
+let clearProgress = 0;
+const CLEAR_DURATION = 0.8;
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -45,6 +50,49 @@ let colorMorph = null;
 
 /** @type {ReturnType<typeof createEffectsState>} */
 let effectsState;
+
+/**
+ * Draw box-drawing border around the clear zone on the canvas.
+ * @param {CanvasRenderingContext2D} c
+ * @param {{ centerCol: number, centerRow: number, halfW: number, halfH: number }} zone
+ * @param {number} cw
+ * @param {number} ch
+ * @param {string[]} colors
+ * @param {string} font
+ */
+function renderTerminalBorder(c, zone, cw, ch, colors, font) {
+  const left = Math.floor(zone.centerCol - zone.halfW);
+  const right = Math.ceil(zone.centerCol + zone.halfW);
+  const top = Math.floor(zone.centerRow - zone.halfH);
+  const bottom = Math.ceil(zone.centerRow + zone.halfH);
+
+  c.save();
+  c.font = `${FONT_SIZE}px ${font}`;
+  c.textBaseline = 'top';
+  c.fillStyle = colors[Math.min(4, colors.length - 1)];
+
+  // Top edge: ┌─...─┐
+  c.fillText('┌', left * cw, top * ch);
+  for (let col = left + 1; col < right; col++) {
+    c.fillText('─', col * cw, top * ch);
+  }
+  c.fillText('┐', right * cw, top * ch);
+
+  // Bottom edge: └─...─┘
+  c.fillText('└', left * cw, bottom * ch);
+  for (let col = left + 1; col < right; col++) {
+    c.fillText('─', col * cw, bottom * ch);
+  }
+  c.fillText('┘', right * cw, bottom * ch);
+
+  // Left and right sides: │
+  for (let row = top + 1; row < bottom; row++) {
+    c.fillText('│', left * cw, row * ch);
+    c.fillText('│', right * cw, row * ch);
+  }
+
+  c.restore();
+}
 
 function init() {
   ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
@@ -87,6 +135,30 @@ function animate(timestamp) {
   // Effects
   updateEffects(effectsState, dt);
 
+  // Clear zone animation
+  if (phase === 'clearing') {
+    clearProgress = Math.min(clearProgress + dt / CLEAR_DURATION, 1);
+    const centerCol = cols / 2;
+    const centerRow = rows / 2;
+    // Terminal is max-width:800px, max-height:min(600, 80vh), plus 2-cell padding
+    const termWidthPx = Math.min(800, window.innerWidth);
+    const termHeightPx = Math.min(600, window.innerHeight * 0.8);
+    const targetHalfW = termWidthPx / (2 * cellW) + 1;
+    const targetHalfH = termHeightPx / (2 * cellH) + 1;
+    // Smoothstep easing
+    const t = clearProgress;
+    const eased = t * t * (3 - 2 * t);
+    effectsState.clearZone = {
+      centerCol,
+      centerRow,
+      halfW: targetHalfW * eased,
+      halfH: targetHalfH * eased,
+    };
+    if (clearProgress >= 1) {
+      phase = 'game';
+    }
+  }
+
   offsetX += dx * SPEED * dt;
   offsetY += dy * SPEED * dt;
 
@@ -101,11 +173,16 @@ function animate(timestamp) {
   activeHeaders = pruneHeaders(activeHeaders, now);
   renderHeaders(ctx, activeHeaders, colorStrings, fontFamily, now);
 
+  if (effectsState.clearZone && (phase === 'clearing' || phase === 'game')) {
+    renderTerminalBorder(ctx, effectsState.clearZone, cellW, cellH, colorStrings, fontFamily);
+  }
+
   animFrameId = requestAnimationFrame(animate);
 }
 
 /** @param {KeyboardEvent} e */
 function handle_keydown(e) {
+  if (phase !== 'intro') return;
   if (e.key === 'Enter') randomize_direction();
 }
 
@@ -183,7 +260,11 @@ onMount(() => {
   ontouchmove={handle_touchmove}
 ></canvas>
 
-<Intro {baseColor} />
+{#if phase === 'intro'}
+  <Intro {baseColor} ondone={() => { clearProgress = 0; phase = 'clearing'; }} />
+{:else if phase === 'game'}
+  <Minigame {baseColor} />
+{/if}
 
 <style>
 :global(body) {
