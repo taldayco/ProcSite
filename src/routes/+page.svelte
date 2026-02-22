@@ -103,6 +103,11 @@ function animate(timestamp) {
   animFrameId = requestAnimationFrame(animate);
 }
 
+/** @param {KeyboardEvent} e */
+function handle_keydown(e) {
+  if (e.key === 'Enter') randomize_direction();
+}
+
 function randomize_direction() {
   const state = randomize({
     lastDirectionChange, angle, dx, dy, noise, baseColor, colorMorph,
@@ -127,7 +132,6 @@ function handle_click(e) {
   const col = e.clientX / cellW;
   const row = e.clientY / cellH;
   spawnRipple(effectsState, col, row);
-  randomize_direction();
 }
 
 /** @param {TouchEvent} e */
@@ -139,7 +143,6 @@ function handle_touchstart(e) {
     updateCursor(effectsState, t.clientX, t.clientY, cellW, cellH);
     spawnRipple(effectsState, col, row);
   }
-  randomize_direction();
 }
 
 /** @param {TouchEvent} e */
@@ -151,7 +154,6 @@ function handle_touchmove(e) {
     updateCursor(effectsState, t.clientX, t.clientY, cellW, cellH);
     spawnRipple(effectsState, col, row);
   }
-  randomize_direction();
 }
 
 function handle_resize() {
@@ -170,7 +172,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onresize={handle_resize} onkeydown={randomize_direction} onscroll={randomize_direction} />
+<svelte:window onresize={handle_resize} onkeydown={handle_keydown} />
 <canvas
   bind:this={canvas}
   onclick={handle_click}
@@ -178,7 +180,6 @@ onMount(() => {
   onmouseleave={handle_mouseleave}
   ontouchstart={handle_touchstart}
   ontouchmove={handle_touchmove}
-  onwheel={randomize_direction}
 ></canvas>
 
 <style>
