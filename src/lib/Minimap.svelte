@@ -6,7 +6,7 @@
 
   let colorRgb = $derived(`rgb(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]})`);
   //brightness of nodes on minimap
-  let colorDim = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.7)`);
+  let colorDim = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.9)`);
   let colorGlow = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.6)`);
 
   const SIZE = 200;
@@ -539,10 +539,9 @@
     top: 1rem;
     right: 1rem;
     z-index: 210;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid var(--minimap-border-color);
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px dashed var(--minimap-border-color);
     padding: 4px;
-    box-shadow: 0 0 8px var(--minimap-border-color);
     animation: minimap-expand 0.5s ease-out 0.6s both;
     user-select: none;
     touch-action: none;
