@@ -5,7 +5,8 @@
   let { network, player, baseColor, traces = [], rival } = $props();
 
   let colorRgb = $derived(`rgb(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]})`);
-  let colorDim = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.3)`);
+  //brightness of nodes on minimap
+  let colorDim = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.7)`);
   let colorGlow = $derived(`rgba(${baseColor[0]}, ${baseColor[1]}, ${baseColor[2]}, 0.6)`);
 
   const SIZE = 200;
@@ -194,9 +195,9 @@
     });
 
     // Force simulation: 50 iterations
-    const repulsion = 2000;
+    const repulsion = 4000;
     const attraction = 0.05;
-    const damping = 0.9;
+    const damping = 0.1;
 
     /** @type {{ x: number, y: number }[]} */
     const vel = pos.map(() => ({ x: 0, y: 0 }));
@@ -208,7 +209,7 @@
           let dx = pos[i].x - pos[j].x;
           let dy = pos[i].y - pos[j].y;
           let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          let force = repulsion / (dist * dist);
+          let force = (repulsion * 2) / (dist * dist);
           let fx = (dx / dist) * force;
           let fy = (dy / dist) * force;
           vel[i].x += fx;
