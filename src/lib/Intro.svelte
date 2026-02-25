@@ -375,7 +375,6 @@
 
   .intro-overlay.visible {
     opacity: 1;
-    pointer-events: auto;
   }
 
   .intro-container {
@@ -386,6 +385,7 @@
     background: rgba(0, 0, 0, 0.7);
     padding: 2rem 3rem;
     border-radius: 4px;
+    pointer-events: auto;
   }
 
   .title-label {

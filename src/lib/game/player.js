@@ -36,7 +36,7 @@ export function newPlayer(net, mod = {}) {
   if (overlordId !== -1) {
     const farCandidates = candidates.filter(id => {
       const path = bfs(net, id, overlordId);
-      return path.length === 0 || path.length > 2; // path includes start+end, so >2 means ≥2 hops
+      return path.length > 2; // path includes start+end, so >2 means ≥2 hops
     });
     if (farCandidates.length > 0) candidates = farCandidates;
   }
@@ -58,14 +58,13 @@ export function newPlayer(net, mod = {}) {
 
 /** @param {Player} player */
 export function isAlive(player) {
-  return player.data > 0 && player.detection < 1.0;
+  return player.detection < 1.0;
 }
 
 /** @param {Player} player */
 export function loseReason(player) {
-  if (player.data <= 0) return 'DATA DEPLETED';
   if (player.detection >= 1.0) return 'DETECTED BY OVERLORD';
-  return '';
+  return 'NETWORK LOST';
 }
 
 // ── Traces ──
@@ -94,7 +93,15 @@ export function spawnTrace(gs) {
 export function moveTraces(gs) {
   const messages = [];
   const contactDetection = (gs.mod && gs.mod.traceContactDetection) || 0.25;
+  // Track tracers to destroy to avoid modifying array during iteration
+  const tracersToDestroy = [];
+
   for (const trace of gs.traces) {
+    // Check if trace should be destroyed to avoid modifying array during iteration
+    if (trace.id !== undefined && gs.player.detection >= 1.0 && !trace._destroyed) {
+      tracersToDestroy.push(trace.id);
+    }
+
     // Traces move every 2 turns
     trace.moveCooldown--;
     if (trace.moveCooldown > 0) {
@@ -133,13 +140,32 @@ export function moveTraces(gs) {
       messages.push(`>> TRACE PROGRAM reached your node! (+${pct}% DETECTION)`);
     }
   }
+
+  // Destroy tracers that have raised detection to 1.0
+  if (gs.player.detection >= 1.0) {
+    for (const traceId of tracersToDestroy) {
+      // Find and remove the trace by ID
+      for (let i = gs.traces.length - 1; i >= 0; i--) {
+        if (gs.traces[i].id === traceId) {
+          gs.traces.splice(i, 1);
+        }
+      }
+    }
+  }
+
   return messages;
 }
 
 // ── Rival Hacker ──
 
 /**
- * @typedef {{ currentNode: number, moveCounter: number, targetServer: number|null, extractedCount: number, extractingTurns: number, extractedTargets: number }} Rival
+ * @typedef {{
+ *   currentNode: number,
+ *   moveCounter: number,
+ *   targetNode: number|null,
+ *   phase: 'moving'|'cracking'|'spiking'|'extracting',
+ *   spikedTargets: number,
+ * }} Rival
  */
 
 /**
@@ -154,19 +180,26 @@ export function newRival(net, playerStart, mod = {}) {
     .filter(n => n.id !== playerStart && n.id !== overlordId)
     .map(n => n.id);
   const startNode = candidates[Math.floor(Math.random() * candidates.length)];
-  const moveInterval = mod.rivalMoveInterval || 3;
   return {
     currentNode: startNode,
-    moveCounter: moveInterval,
-    targetServer: null,
-    extractedCount: 0,
-    extractingTurns: 0,
-    extractedTargets: 0,
+    moveCounter: mod.rivalMoveInterval || 3,
+    targetNode: null,
+    phase: 'moving',
+    spikedTargets: 0,
   };
 }
 
 /**
- * Move the rival toward nearest un-extracted target. If it arrives, extract over 2 turns.
+ * Move the rival hacker each turn.
+ *
+ * State machine per move-tick:
+ *   moving   → BFS toward nearest un-spiked target; on arrival → 'cracking'
+ *   cracking → crack the node (sets NodeState.Cracked)          → 'spiking'
+ *   spiking  → spike the node (sets NodeState.Spiked)
+ *              if Server                                         → 'extracting'
+ *              else                                             → 'moving'
+ *   extracting → extract data (sets node.extracted)             → 'moving'
+ *
  * @param {{ network: import('./network.js').Network, rival: Rival|null, mod?: import('./modifiers.js').ModifierConfig }} gs
  * @returns {string[]} warning messages
  */
@@ -174,38 +207,55 @@ export function moveRival(gs) {
   if (!gs.rival) return [];
 
   const rival = gs.rival;
+  const net = gs.network;
   const messages = [];
   const moveInterval = (gs.mod && gs.mod.rivalMoveInterval) || 3;
 
-  // If currently extracting, count down instead of moving
-  if (rival.extractingTurns > 0) {
-    rival.extractingTurns--;
-    if (rival.extractingTurns > 0) {
-      const node = gs.network.nodes[rival.targetServer];
-      messages.push(`>> RIVAL HACKER is extracting ${node.name}... (${rival.extractingTurns} turn(s) left)`);
-      return messages;
-    }
-    // Extraction complete
-    const node = gs.network.nodes[rival.targetServer];
-    node.extracted = true;
-    rival.extractedCount++;
-    rival.extractedTargets++;
-    rival.targetServer = null;
-    messages.push(`>> RIVAL HACKER extracted target ${node.name}!`);
+  // Phases that don't consume the move counter — they act immediately each tick.
+  if (rival.phase === 'cracking') {
+    const node = net.nodes[rival.targetNode];
+    node.state = NodeState.Cracked;
+    rival.phase = 'spiking';
+    messages.push(`>> RIVAL HACKER cracked ${node.name}!`);
     return messages;
   }
 
+  if (rival.phase === 'spiking') {
+    const node = net.nodes[rival.targetNode];
+    node.state = NodeState.Spiked;
+    rival.spikedTargets++;
+    messages.push(`>> RIVAL HACKER spiked ${node.name}! (${rival.spikedTargets} target(s) taken)`);
+    if (node.type === NodeType.Server) {
+      rival.phase = 'extracting';
+      messages.push(`>> RIVAL HACKER is extracting data from ${node.name}...`);
+    } else {
+      rival.targetNode = null;
+      rival.phase = 'moving';
+      rival.moveCounter = moveInterval;
+    }
+    return messages;
+  }
+
+  if (rival.phase === 'extracting') {
+    const node = net.nodes[rival.targetNode];
+    node.extracted = true;
+    rival.targetNode = null;
+    rival.phase = 'moving';
+    rival.moveCounter = moveInterval;
+    messages.push(`>> RIVAL HACKER extracted data from ${node.name}.`);
+    return messages;
+  }
+
+  // phase === 'moving': count down, then move one step
   rival.moveCounter--;
   if (rival.moveCounter > 0) return messages;
-
-  // Reset counter
   rival.moveCounter = moveInterval;
 
-  // Find nearest un-extracted target node
+  // Find nearest un-spiked target
   let bestPath = /** @type {number[]} */ ([]);
-  for (const node of gs.network.nodes) {
-    if (node.isTarget && !node.extracted) {
-      const path = bfs(gs.network, rival.currentNode, node.id);
+  for (const node of net.nodes) {
+    if (node.isTarget && node.state !== NodeState.Spiked) {
+      const path = bfs(net, rival.currentNode, node.id);
       if (path.length > 0 && (bestPath.length === 0 || path.length < bestPath.length)) {
         bestPath = path;
       }
@@ -216,12 +266,12 @@ export function moveRival(gs) {
     rival.currentNode = bestPath[1];
   }
 
-  // Check if rival is on an un-extracted target — start extracting
-  const currentNode = gs.network.nodes[rival.currentNode];
-  if (currentNode.isTarget && !currentNode.extracted) {
-    rival.extractingTurns = 2;
-    rival.targetServer = currentNode.id;
-    messages.push(`>> RIVAL HACKER is extracting ${currentNode.name}... (2 turn(s) left)`);
+  // If rival has arrived at an un-spiked target, begin cracking next tick
+  const current = net.nodes[rival.currentNode];
+  if (current.isTarget && current.state !== NodeState.Spiked) {
+    rival.targetNode = current.id;
+    rival.phase = 'cracking';
+    messages.push(`>> RIVAL HACKER has reached ${current.name} — beginning breach...`);
   }
 
   return messages;
