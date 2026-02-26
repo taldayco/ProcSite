@@ -19,7 +19,7 @@ import {
   newRival,
   moveRival,
 } from "./player.js";
-import { getModifier } from "./modifiers.js";
+import { getModifier, MODIFIERS } from "./modifiers.js";
 
 export const EntryType = {
   System: "system",
@@ -119,10 +119,10 @@ export function execute(gs, input) {
       entries.push(...cmdHop(gs, args));
       break;
     case "crack":
-      entries.push(...cmdCrack(gs));
+      entries.push(...cmdCrack(gs, args));
       break;
     case "spike":
-      entries.push(...cmdSpike(gs));
+      entries.push(...cmdSpike(gs, args));
       break;
     case "extract":
       entries.push(...cmdExtract(gs));
@@ -175,10 +175,16 @@ export function execute(gs, input) {
       }
     // fall through
     default:
-      entries.push({
-        text: `Unknown command: ${cmd}. Type 'help' for commands.`,
-        type: EntryType.Error,
-      });
+      if (cmd.startsWith("dev_changemod_")) {
+        entries.push(...cmdDevChangeMod(gs, cmd.slice("dev_changemod_".length)));
+      } else if (cmd.startsWith("destroy_")) {
+        entries.push(...cmdDestroy(gs, cmd.slice("destroy_".length)));
+      } else {
+        entries.push({
+          text: `Unknown command: ${cmd}. Type 'help' for commands.`,
+          type: EntryType.Error,
+        });
+      }
   }
 
   // Decrement cloak
@@ -200,7 +206,7 @@ export function execute(gs, input) {
     "overload",
     "bypass",
     "shatter",
-  ].includes(cmd);
+  ].includes(cmd) || cmd.startsWith("destroy_");
   if (gs.player.cloakTurns > 0 && isAction) {
     gs.player.cloakTurns--;
     if (gs.player.cloakTurns === 0) {
@@ -278,6 +284,7 @@ function cmdHelp(gs) {
     "  pass   - gain 1 DATA, +5% detection",
     `  cloak  - Reduce detection for 3 turns (${cloakCost * cm} DATA)`,
     "  kill   - Eliminate rival hacker at your node (2 DATA)",
+    "  destroy_<tracer> - Destroy a tracer program (from a cracked Turret node)",
     "  sudo rm -rf user - undefined",
   ].map((text) => ({ text, type: EntryType.Info }));
 
@@ -307,10 +314,13 @@ function cmdStatus(gs) {
     ? ` | ACTIONS: ${gs.actionCount}/${mod.actionLimit}`
     : "";
 
+  const isTarget = node.isTarget || (node._isTargetInternal && node.state === NodeState.Cracked);
+  const targetTag = isTarget ? " (TARGET)" : "";
+
   /** @type {HistoryEntry[]} */
   const entries = [
     {
-      text: `DATA: ${gs.player.data} | DETECTION: ${Math.floor(gs.player.detection * 100)}% | NODE: ${node.name} [${NodeTypeNames[node.type]}] | TARGETS: ${gs.player.spikeCount}/${targetCount}${cloak}${traces}${rival}${epoch}`,
+      text: `DATA: ${gs.player.data} | DETECTION: ${Math.floor(gs.player.detection * 100)}% | NODE: ${node.name} [${NodeTypeNames[node.type]}]${targetTag} | TARGETS: ${gs.player.spikeCount}/${targetCount}${cloak}${traces}${rival}${epoch}`,
       type: EntryType.Info,
     },
   ];
@@ -327,7 +337,7 @@ function cmdStatus(gs) {
       if (cn.state === NodeState.Cracked) stateTag = " [CRACKED]";
       else if (cn.state === NodeState.Spiked) stateTag = " [SPIKED]";
       else if (cn.state === NodeState.Locked) stateTag = " [LOCKED]";
-      const target = cn.isTarget ? " (TARGET)" : "";
+      const target = (cn.isTarget || (cn._isTargetInternal && cn.state === NodeState.Cracked)) ? " (TARGET)" : "";
       const ice =
         cn.ice &&
         cn.state !== NodeState.Cracked &&
@@ -343,7 +353,7 @@ function cmdStatus(gs) {
         type:
           cn.state === NodeState.Locked
             ? EntryType.Error
-            : cn.isTarget
+            : (cn.isTarget || (cn._isTargetInternal && cn.state === NodeState.Cracked))
               ? EntryType.Warning
               : EntryType.System,
       });
@@ -371,7 +381,7 @@ function cmdStatus(gs) {
   }
 
   // spike — only on cracked target nodes
-  if (node.isTarget && node.state === NodeState.Cracked) {
+  if (isTarget && node.state === NodeState.Cracked) {
     nodeSpecific.push("spike — plant a spike on this target");
   }
 
@@ -402,6 +412,11 @@ function cmdStatus(gs) {
     nodeSpecific.push(
       "jam — suppress hop-detection on connected nodes for 3 turns",
     );
+    if (gs.traces.length > 0) {
+      for (const trace of gs.traces) {
+        nodeSpecific.push(`destroy_${trace.name} — destroy tracer ${trace.name}`);
+      }
+    }
   }
 
   // bridge — Door cracked/spiked
@@ -489,7 +504,8 @@ function cmdStatus(gs) {
 function nodeEntryType(node, gs) {
   if (node.id === gs.player.currentNode) return EntryType.Info;
   if (node.state === NodeState.Locked) return EntryType.Error;
-  if (node.isTarget) return EntryType.Warning;
+  const revealedTarget = node.isTarget || (node._isTargetInternal && node.state === NodeState.Cracked);
+  if (revealedTarget) return EntryType.Warning;
   if (node.state === NodeState.Cracked || node.state === NodeState.Spiked)
     return EntryType.Success;
   return EntryType.System;
@@ -510,7 +526,8 @@ function cmdMap(gs) {
     else if (n.state === NodeState.Spiked) marker = "[S]";
     else if (n.state === NodeState.Locked) marker = "[X]";
 
-    const target = n.isTarget ? " (TARGET)" : "";
+    const revealedTarget = n.isTarget || (n._isTargetInternal && n.state === NodeState.Cracked);
+    const target = revealedTarget ? " (TARGET)" : "";
     const hasTrace = gs.traces.some((t) => t.currentNode === n.id)
       ? " [!]"
       : "";
@@ -709,9 +726,29 @@ function cmdHop(gs, args) {
   return entries;
 }
 
-/** @param {GameState} gs */
-function cmdCrack(gs) {
+/**
+ * @param {GameState} gs
+ * @param {string[]} args
+ */
+function cmdCrack(gs, args) {
   const node = getNode(gs.network, gs.player.currentNode);
+
+  if (args.length > 0) {
+    const targetName = args[0].toUpperCase();
+    if (targetName !== node.name.toUpperCase()) {
+      const targetNode = nodeByName(gs.network, targetName);
+      if (!targetNode) {
+        return [{ text: `Unknown node: ${targetName}`, type: EntryType.Error }];
+      }
+      return [
+        {
+          text: `You are not at ${targetName}. You must 'hop' there before cracking.`,
+          type: EntryType.Error,
+        },
+      ];
+    }
+  }
+
   const mod = gs.mod;
 
   if (node.state === NodeState.Cracked || node.state === NodeState.Spiked) {
@@ -822,18 +859,63 @@ function cmdCrack(gs) {
   return entries;
 }
 
-/** @param {GameState} gs */
-function cmdSpike(gs) {
+/**
+ * @param {GameState} gs
+ * @param {string[]} args
+ */
+function cmdSpike(gs, args) {
   const node = getNode(gs.network, gs.player.currentNode);
+
+  if (args.length > 0) {
+    const targetName = args[0].toUpperCase();
+    if (targetName !== node.name.toUpperCase()) {
+      const targetNode = nodeByName(gs.network, targetName);
+      if (!targetNode) {
+        return [{ text: `Unknown node: ${targetName}`, type: EntryType.Error }];
+      }
+      return [
+        {
+          text: `You are not at ${targetName}. You must 'hop' there before spiking.`,
+          type: EntryType.Error,
+        },
+      ];
+    }
+  }
+
   const mod = gs.mod;
   const targetCount = mod.targetCount || 3;
 
-  if (!node.isTarget) {
-    return [{ text: "This node is not a target.", type: EntryType.Error }];
+  // In QUBIT mode a rival-cracked target has _isTargetInternal=true but
+  // isTarget=false (the player never cracked it themselves, so it was never
+  // revealed via cmdCrack). Promote it now so the player can spike it.
+  if (
+    !node.isTarget &&
+    node._isTargetInternal &&
+    node.state === NodeState.Cracked
+  ) {
+    node.isTarget = true;
+    node._isTargetInternal = false;
   }
+
+  if (!node.isTarget) {
+    return [
+      {
+        text: `This node (${node.name}) is not a target.`,
+        type: EntryType.Error,
+      },
+    ];
+  }
+
+  if (node.state === NodeState.Spiked) {
+    return [{ text: "This node is already spiked.", type: EntryType.Error }];
+  }
+
   if (node.state !== NodeState.Cracked) {
     return [
-      { text: "Node must be cracked before spiking.", type: EntryType.Error },
+      {
+        text: `Node ${node.name} must be cracked before spiking.`,
+        type: EntryType.Error,
+      },
     ];
   }
 
@@ -1157,6 +1239,45 @@ function cmdJam(gs) {
   }
 
   return entries;
+}
+
+/**
+ * destroy_<tracer>: Destroy a named tracer program using a cracked/spiked Turret node.
+ * @param {GameState} gs
+ * @param {string} tracerName — the part after "destroy_" (case-insensitive)
+ * @returns {HistoryEntry[]}
+ */
+function cmdDestroy(gs, tracerName) {
+  const node = getNode(gs.network, gs.player.currentNode);
+
+  if (node.type !== NodeType.Turret) {
+    return [{ text: "destroy requires a cracked Turret node.", type: EntryType.Error }];
+  }
+  if (node.state !== NodeState.Cracked && node.state !== NodeState.Spiked) {
+    return [{ text: "Turret must be cracked before targeting a tracer.", type: EntryType.Error }];
+  }
+  if (!tracerName) {
+    const list = gs.traces.map(t => t.name).join(", ") || "none";
+    return [{ text: `Usage: destroy_<tracer>  Active tracers: ${list}`, type: EntryType.Error }];
+  }
+
+  const name = tracerName.toUpperCase();
+  const idx = gs.traces.findIndex(t => t.name.toUpperCase() === name);
+  if (idx === -1) {
+    const list = gs.traces.map(t => t.name).join(", ") || "none";
+    return [{
+      text: `No active tracer named "${tracerName}". Active tracers: ${list}`,
+      type: EntryType.Error,
+    }];
+  }
+
+  const destroyed = gs.traces[idx];
+  gs.traces.splice(idx, 1);
+
+  return [{
+    text: `>> TRACER ${destroyed.name} DESTROYED by Turret. (${gs.traces.length} tracer(s) remaining)`,
+    type: EntryType.Success,
+  }];
 }
 
 /**
@@ -1528,6 +1649,192 @@ function cmdSudoRm(gs) {
   gs.killed = true;
   gs.lost = true;
   return [{ text: "USER DELETED.", type: EntryType.Error }];
+}
+
+/**
+ * DEV command: switch the active modifier at runtime.
+ * Usage: dev_changemod_<MOD_NAME>  (e.g. dev_changemod_QUBIT)
+ * Pass an empty string or "NONE" to clear the modifier.
+ *
+ * After swapping gs.mod, this function reconciles the live network/player/rival
+ * state for every modifier property that was baked in at generation time:
+ *
+ *  hiddenTargets (QUBIT)
+ *    entering  → hide all un-cracked targets (isTarget=false, _isTargetInternal=true)
+ *    leaving   → reveal all hidden targets (_isTargetInternal → isTarget)
+ *
+ *  overlordIsTarget (KERNEL)
+ *    entering  → mark Overlord node as target (respects hiddenTargets of new mod)
+ *    leaving   → unmark Overlord node as target
+ *
+ *  overlordImmediate (EGO)
+ *    entering  → activate Overlord immediately
+ *    leaving   → no change (Overlord stays in whatever state it's in)
+ *
+ *  allDiscovered (BREACH)
+ *    entering  → set all Undiscovered nodes to Discovered
+ *    leaving   → no change (can't un-discover nodes the player has seen)
+ *
+ *  rivalMoveInterval (CACHE et al.)
+ *    always    → clamp rival.moveCounter to the new interval
+ *
+ *  noServers / directedEdges / minNodes / maxNodes / targetCount
+ *    these are structural: emit a warning but do NOT touch the network.
+ *
+ * @param {GameState} gs
+ * @param {string} modName  — the part after "dev_changemod_", uppercased automatically
+ * @returns {HistoryEntry[]}
+ */
+function cmdDevChangeMod(gs, modName) {
+  /** @type {HistoryEntry[]} */
+  const entries = [];
+  const key = modName.toUpperCase();
+
+  const NONE_MOD = { name: "", description: "" };
+
+  if (!key || key === "NONE") {
+    reconcileModChange(gs, gs.mod, NONE_MOD, entries);
+    gs.mod = NONE_MOD;
+    entries.push({ text: ">> DEV: Modifier cleared (no modifier active).", type: EntryType.System });
+    return entries;
+  }
+
+  const newMod = MODIFIERS[key];
+  if (!newMod) {
+    const available = Object.keys(MODIFIERS).join(", ");
+    entries.push({
+      text: `>> DEV: Unknown modifier "${key}". Available: ${available}`,
+      type: EntryType.Error,
+    });
+    return entries;
+  }
+
+  const prev = gs.mod.name || "NONE";
+  reconcileModChange(gs, gs.mod, newMod, entries);
+  gs.mod = newMod;
+  entries.push({
+    text: `>> DEV: Modifier changed  ${prev} → ${newMod.name}  (${newMod.description})`,
+    type: EntryType.System,
+  });
+  return entries;
+}
+
+/**
+ * Reconcile live game state when the active modifier changes from `oldMod` to `newMod`.
+ * Mutates gs.network, gs.player, gs.rival, gs.overlord as needed.
+ * Pushes info/warning entries for anything it does or cannot do.
+ *
+ * @param {GameState} gs
+ * @param {import('./modifiers.js').ModifierConfig} oldMod
+ * @param {import('./modifiers.js').ModifierConfig} newMod
+ * @param {HistoryEntry[]} entries
+ */
+function reconcileModChange(gs, oldMod, newMod, entries) {
+  const net = gs.network;
+
+  // ── QUBIT / hiddenTargets ─────────────────────────────────────────────────
+  const wasHidden = !!oldMod.hiddenTargets;
+  const nowHidden = !!newMod.hiddenTargets;
+
+  if (!wasHidden && nowHidden) {
+    // Entering QUBIT: hide every target that hasn't been cracked/spiked yet
+    let hidden = 0;
+    for (const n of net.nodes) {
+      if (n.isTarget && n.state !== NodeState.Cracked && n.state !== NodeState.Spiked) {
+        n._isTargetInternal = true;
+        n.isTarget = false;
+        hidden++;
+      }
+    }
+    if (hidden > 0)
+      entries.push({ text: `>> DEV [QUBIT]: ${hidden} target(s) hidden from player.`, type: EntryType.System });
+  } else if (wasHidden && !nowHidden) {
+    // Leaving QUBIT: promote all internally-known targets back to visible
+    let revealed = 0;
+    for (const n of net.nodes) {
+      if (n._isTargetInternal) {
+        n.isTarget = true;
+        n._isTargetInternal = false;
+        revealed++;
+      }
+    }
+    if (revealed > 0)
+      entries.push({ text: `>> DEV [QUBIT→off]: ${revealed} hidden target(s) revealed.`, type: EntryType.System });
+  }
+
+  // ── overlordIsTarget (KERNEL) ─────────────────────────────────────────────
+  const wasOverlordTarget = !!oldMod.overlordIsTarget;
+  const nowOverlordTarget = !!newMod.overlordIsTarget;
+  if (wasOverlordTarget !== nowOverlordTarget) {
+    const overlordNode = net.nodes.find(n => n.type === NodeType.Overlord);
+    if (overlordNode) {
+      if (nowOverlordTarget) {
+        // Mark Overlord as target, respecting new hiddenTargets setting
+        if (nowHidden) {
+          overlordNode._isTargetInternal = true;
+          overlordNode.isTarget = false;
+        } else {
+          overlordNode.isTarget = true;
+          overlordNode._isTargetInternal = false;
+        }
+        entries.push({ text: ">> DEV [KERNEL]: Overlord node marked as target.", type: EntryType.System });
+      } else {
+        // Remove target status from Overlord node
+        overlordNode.isTarget = false;
+        overlordNode._isTargetInternal = false;
+        entries.push({ text: ">> DEV [KERNEL→off]: Overlord node no longer a target.", type: EntryType.System });
+      }
+    }
+  }
+
+  // ── overlordImmediate (EGO) ───────────────────────────────────────────────
+  if (!oldMod.overlordImmediate && newMod.overlordImmediate) {
+    if (!gs.overlord.neutralized) {
+      gs.overlord.active = true;
+      entries.push({ text: ">> DEV [EGO]: Overlord activated immediately.", type: EntryType.System });
+    }
+  }
+
+  // ── allDiscovered (BREACH) ────────────────────────────────────────────────
+  if (!oldMod.allDiscovered && newMod.allDiscovered) {
+    let count = 0;
+    for (const n of net.nodes) {
+      if (n.state === NodeState.Undiscovered) {
+        n.state = NodeState.Discovered;
+        count++;
+      }
+    }
+    if (count > 0)
+      entries.push({ text: `>> DEV [BREACH]: ${count} node(s) set to Discovered.`, type: EntryType.System });
+  }
+
+  // ── rivalMoveInterval ────────────────────────────────────────────────────
+  if (gs.rival) {
+    const newInterval = newMod.rivalMoveInterval || 3;
+    const oldInterval = oldMod.rivalMoveInterval || 3;
+    if (newInterval !== oldInterval) {
+      gs.rival.moveCounter = Math.min(gs.rival.moveCounter, newInterval);
+      entries.push({ text: `>> DEV: Rival move interval ${oldInterval} → ${newInterval} (counter clamped to ${gs.rival.moveCounter}).`, type: EntryType.System });
+    }
+  }
+
+  // ── Structural properties — warn only ────────────────────────────────────
+  const structural = [];
+  if (!!oldMod.noServers !== !!newMod.noServers)
+    structural.push("noServers (VOID)");
+  if (!!oldMod.directedEdges !== !!newMod.directedEdges)
+    structural.push("directedEdges (VECTOR)");
+  if ((oldMod.minNodes || 0) !== (newMod.minNodes || 0) || (oldMod.maxNodes || 0) !== (newMod.maxNodes || 0))
+    structural.push("node count (VOID/SHARD)");
+  if ((oldMod.targetCount || 3) !== (newMod.targetCount || 3))
+    structural.push(`targetCount (${oldMod.targetCount || 3} → ${newMod.targetCount || 3})`);
+
+  if (structural.length > 0) {
+    entries.push({
+      text: `>> DEV [WARN]: Structural properties changed but NOT applied to live network: ${structural.join(", ")}. Start a new game for these to take effect.`,
+      type: EntryType.Error,
+    });
+  }
 }
 
 /** @param {GameState} gs */

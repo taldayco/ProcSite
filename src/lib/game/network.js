@@ -37,6 +37,15 @@ export function generateName(typeInt) {
   return `${pfx}_${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
 }
 
+/** Generates a tracer program name following the same convention as node names. */
+export function generateTraceName() {
+  if (Math.random() < 0.5) {
+    const num = Math.floor(Math.random() * 99) + 1;
+    return `TRC_${String(num).padStart(2, '0')}`;
+  }
+  return `TRC_${SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)]}`;
+}
+
 /**
  * @typedef {{
  *   id: number,
@@ -194,6 +203,27 @@ export function generateNetwork(mod = {}) {
         while (usedNames.has(n.name)) n.name = generateName(NodeType.Server);
         usedNames.add(n.name);
         serverCount++;
+      }
+    }
+  }
+
+  // Guarantee at least 1 Turret node per map
+  {
+    let turretCount = nodes.filter(n => n.type === NodeType.Turret).length;
+    if (turretCount < 1) {
+      const convertible = nodes
+        .filter(n => n.type !== NodeType.Overlord && !n.isTarget && !n._isTargetInternal && n.type !== NodeType.Server && n.type !== NodeType.Turret)
+        .map(n => n.id);
+      for (let i = convertible.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [convertible[i], convertible[j]] = [convertible[j], convertible[i]];
+      }
+      if (convertible.length > 0) {
+        const n = nodes[convertible[0]];
+        n.type = NodeType.Turret;
+        n.name = generateName(NodeType.Turret);
+        while (usedNames.has(n.name)) n.name = generateName(NodeType.Turret);
+        usedNames.add(n.name);
       }
     }
   }

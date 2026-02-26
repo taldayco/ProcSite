@@ -1,4 +1,4 @@
-import { NodeType, NodeState, getNode, bfs } from './network.js';
+import { NodeType, NodeState, getNode, bfs, generateTraceName } from './network.js';
 
 /**
  * @typedef {{
@@ -70,7 +70,7 @@ export function loseReason(player) {
 // ── Traces ──
 
 /**
- * @typedef {{ id: number, currentNode: number, moveCooldown: number }} Trace
+ * @typedef {{ id: number, name: string, currentNode: number, moveCooldown: number }} Trace
  */
 
 let traceIdCounter = 0;
@@ -82,7 +82,11 @@ let traceIdCounter = 0;
 export function spawnTrace(gs) {
   const overlordNode = gs.network.nodes.find(n => n.type === NodeType.Overlord);
   if (!overlordNode) return;
-  gs.traces.push({ id: traceIdCounter++, currentNode: overlordNode.id, moveCooldown: 2 });
+  // Generate a unique tracer name — retry if already taken by an active trace
+  let name;
+  const usedNames = new Set(gs.traces.map(t => t.name));
+  do { name = generateTraceName(); } while (usedNames.has(name));
+  gs.traces.push({ id: traceIdCounter++, name, currentNode: overlordNode.id, moveCooldown: 2 });
 }
 
 /**
@@ -93,15 +97,8 @@ export function spawnTrace(gs) {
 export function moveTraces(gs) {
   const messages = [];
   const contactDetection = (gs.mod && gs.mod.traceContactDetection) || 0.25;
-  // Track tracers to destroy to avoid modifying array during iteration
-  const tracersToDestroy = [];
 
   for (const trace of gs.traces) {
-    // Check if trace should be destroyed to avoid modifying array during iteration
-    if (trace.id !== undefined && gs.player.detection >= 1.0 && !trace._destroyed) {
-      tracersToDestroy.push(trace.id);
-    }
-
     // Traces move every 2 turns
     trace.moveCooldown--;
     if (trace.moveCooldown > 0) {
@@ -110,7 +107,7 @@ export function moveTraces(gs) {
         gs.player.detection += contactDetection;
         if (gs.player.detection > 1.0) gs.player.detection = 1.0;
         const pct = Math.round(contactDetection * 100);
-        messages.push(`>> TRACE PROGRAM reached your node! (+${pct}% DETECTION)`);
+        messages.push(`>> TRACE PROGRAM ${trace.name} reached your node! (+${pct}% DETECTION) [use destroy_${trace.name} from a cracked Turret]`);
       }
       continue;
     }
@@ -137,19 +134,7 @@ export function moveTraces(gs) {
       gs.player.detection += contactDetection;
       if (gs.player.detection > 1.0) gs.player.detection = 1.0;
       const pct = Math.round(contactDetection * 100);
-      messages.push(`>> TRACE PROGRAM reached your node! (+${pct}% DETECTION)`);
-    }
-  }
-
-  // Destroy tracers that have raised detection to 1.0
-  if (gs.player.detection >= 1.0) {
-    for (const traceId of tracersToDestroy) {
-      // Find and remove the trace by ID
-      for (let i = gs.traces.length - 1; i >= 0; i--) {
-        if (gs.traces[i].id === traceId) {
-          gs.traces.splice(i, 1);
-        }
-      }
+      messages.push(`>> TRACE PROGRAM ${trace.name} reached your node! (+${pct}% DETECTION) [use destroy_${trace.name} from a cracked Turret]`);
     }
   }
 
@@ -214,6 +199,23 @@ export function moveRival(gs) {
   // Phases that don't consume the move counter — they act immediately each tick.
   if (rival.phase === 'cracking') {
     const node = net.nodes[rival.targetNode];
+    // Player may have spiked this node before the rival's crack tick fires.
+    if (node.state === NodeState.Spiked) {
+      const overlordNode = net.nodes.find(n => n.type === NodeType.Overlord);
+      const overlordName = overlordNode ? overlordNode.name : 'OVERLORD';
+      messages.push(`>> RIVAL HACKER attempted to crack ${node.name} but detected OVERLORD presence instead. ${overlordName} noticed. +10% detection.`);
+      rival.targetNode = null;
+      rival.phase = 'moving';
+      rival.moveCounter = (gs.mod && gs.mod.rivalMoveInterval) || 3;
+      if (gs.player) {
+        gs.player.detection = Math.min(1.0, gs.player.detection + 0.10);
+      }
+      if (!gs.overlord.neutralized) {
+        spawnTrace(gs);
+        messages.push(`>> ${overlordName} deployed a TRACE PROGRAM!`);
+      }
+      return messages;
+    }
     node.state = NodeState.Cracked;
     rival.phase = 'spiking';
     messages.push(`>> RIVAL HACKER cracked ${node.name}!`);
@@ -222,6 +224,23 @@ export function moveRival(gs) {
 
   if (rival.phase === 'spiking') {
     const node = net.nodes[rival.targetNode];
+    // Player may have spiked this node on the same turn — player has priority.
+    if (node.state === NodeState.Spiked) {
+      const overlordNode = net.nodes.find(n => n.type === NodeType.Overlord);
+      const overlordName = overlordNode ? overlordNode.name : 'OVERLORD';
+      messages.push(`>> RIVAL HACKER attempted to spike ${node.name} but detected OVERLORD presence instead. ${overlordName} noticed. +10% detection.`);
+      rival.targetNode = null;
+      rival.phase = 'moving';
+      rival.moveCounter = (gs.mod && gs.mod.rivalMoveInterval) || 3;
+      if (gs.player) {
+        gs.player.detection = Math.min(1.0, gs.player.detection + 0.10);
+      }
+      if (!gs.overlord.neutralized) {
+        spawnTrace(gs);
+        messages.push(`>> ${overlordName} deployed a TRACE PROGRAM!`);
+      }
+      return messages;
+    }
     node.state = NodeState.Spiked;
     rival.spikedTargets++;
     messages.push(`>> RIVAL HACKER spiked ${node.name}! (${rival.spikedTargets} target(s) taken)`);
@@ -251,10 +270,14 @@ export function moveRival(gs) {
   if (rival.moveCounter > 0) return messages;
   rival.moveCounter = moveInterval;
 
-  // Find nearest un-spiked target
+  // Find nearest un-spiked target.
+  // The rival always knows real targets — even in QUBIT mode where isTarget is
+  // hidden from the player until cracked. We check _isTargetInternal as a
+  // fallback so the rival navigates correctly regardless.
   let bestPath = /** @type {number[]} */ ([]);
   for (const node of net.nodes) {
-    if (node.isTarget && node.state !== NodeState.Spiked) {
+    const isRealTarget = node.isTarget || node._isTargetInternal;
+    if (isRealTarget && node.state !== NodeState.Spiked) {
       const path = bfs(net, rival.currentNode, node.id);
       if (path.length > 0 && (bestPath.length === 0 || path.length < bestPath.length)) {
         bestPath = path;
@@ -266,9 +289,10 @@ export function moveRival(gs) {
     rival.currentNode = bestPath[1];
   }
 
-  // If rival has arrived at an un-spiked target, begin cracking next tick
+  // If rival has arrived at an un-spiked target, begin cracking next tick.
+  // Again check _isTargetInternal so QUBIT-hidden targets are recognised.
   const current = net.nodes[rival.currentNode];
-  if (current.isTarget && current.state !== NodeState.Spiked) {
+  if ((current.isTarget || current._isTargetInternal) && current.state !== NodeState.Spiked) {
     rival.targetNode = current.id;
     rival.phase = 'cracking';
     messages.push(`>> RIVAL HACKER has reached ${current.name} — beginning breach...`);

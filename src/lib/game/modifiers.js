@@ -1,7 +1,7 @@
 /** @typedef {Record<string, any>} ModifierConfig */
 
 /** @type {Record<string, ModifierConfig>} */
-const MODIFIERS = {
+export const MODIFIERS = {
   NEURAL: {
     name: 'NEURAL',
     description: 'Overlord detection scales 2x faster',
