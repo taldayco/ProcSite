@@ -26,6 +26,8 @@ let randomizeFired = 0;
 let lastDecodedWord = '';
 const RANDOMIZE_COUNT = 5;
 const RANDOMIZE_INTERVAL = 200;
+/** @type {number | null} */
+let decodeWordFadeStartTime = null;
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -190,19 +192,23 @@ function animate(timestamp) {
     }
     // After all bursts fired, wait for final header to finish decoding
     if (randomizeFired >= RANDOMIZE_COUNT) {
-      const lastHeader = activeHeaders[activeHeaders.length - 1];
-      if (lastHeader && performance.now() - lastHeader.startTime >= DECODE_DURATION) {
-        // Start fading the last header if not already fading
-        if (lastHeader.fadeStartTime == null) {
-          lastHeader.fadeStartTime = performance.now();
-          lastDecodedWord = lastHeader.word;
-        }
-        // Wait for fade to complete before clearing
-        if (performance.now() - lastHeader.fadeStartTime >= FADE_DURATION) {
+      const now = performance.now();
+      // If we already started fading, check if fade is complete
+      if (decodeWordFadeStartTime !== null) {
+        if (now - decodeWordFadeStartTime >= FADE_DURATION) {
+          decodeWordFadeStartTime = null;
           addLayer('synth');
           clearProgress = 0;
           phase = 'clearing';
           transitionDown().then(() => resetToKick());
+        }
+      } else {
+        // Look for the last header and start fading it once decoded
+        const lastHeader = activeHeaders[activeHeaders.length - 1];
+        if (lastHeader && now - lastHeader.startTime >= DECODE_DURATION) {
+          lastHeader.fadeStartTime = now;
+          lastDecodedWord = lastHeader.word;
+          decodeWordFadeStartTime = now;
         }
       }
     }
@@ -250,8 +256,8 @@ function animate(timestamp) {
   currentMode.render(ctx, modeState, noise, cols, rows, offset, colorStrings, fontFamily, dt, effectsState);
 
   const now = performance.now();
-  activeHeaders = pruneHeaders(activeHeaders, now);
   renderHeaders(ctx, activeHeaders, colorStrings, fontFamily, now);
+  activeHeaders = pruneHeaders(activeHeaders, now);
 
   if (effectsState.clearZone && (phase === 'clearing' || phase === 'game')) {
     renderTerminalBorder(ctx, effectsState.clearZone, cellW, cellH, colorStrings, fontFamily);
@@ -377,6 +383,7 @@ onMount(() => {
 {#if phase === 'intro'}
   <Intro {baseColor} ondone={() => {
     phase = 'decoding';
+    decodeWordFadeStartTime = null;
     randomize_direction();
     decodeStartTime = performance.now();
     randomizeFired = 1;
@@ -385,6 +392,7 @@ onMount(() => {
   <Minigame {baseColor} decodedWord={lastDecodedWord} initialScore={carryScore} ondetection={() => randomize_direction({ skipHeaders: true })} onkill={() => { carryScore = 0; transitionDown(); kill_effect(); }} onnextlevel={(score) => {
     carryScore = score;
     phase = 'decoding';
+    decodeWordFadeStartTime = null;
     randomize_direction();
     decodeStartTime = performance.now();
     randomizeFired = 1;

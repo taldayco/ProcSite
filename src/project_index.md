@@ -405,7 +405,7 @@ Exported functions:
 | `renderTerminalBorder(c, zone, cw, ch, colors, font)` | Draws a box-drawing border (┌─┐│└─┘) around the terminal clear zone on the canvas. |
 | `computeFullClearZone()` | Computes the clear zone dimensions (centered, based on the terminal's max-width/height and current grid cell size). |
 | `init()` | Sets up the canvas context, measures the grid, sizes the canvas, builds colour strings, and initialises the current render mode. |
-| `animate(timestamp)` | Main `requestAnimationFrame` loop: color morphing, effects update, decoding/clearing/game phase logic, canvas clear, mode update+render, header render, border render. |
+| `animate(timestamp)` | Main `requestAnimationFrame` loop: color morphing, effects update, decoding/clearing/game phase logic, canvas clear, mode update+render, header render (before prune), header prune, border render. |
 | `handle_keydown(e)` | Triggers `randomize_direction()` on Enter during the intro phase. |
 | `randomize_direction(options?)` | Wraps `randomize()` with the current scene state object and destructures the result back into local variables. |
 | `kill_effect()` | Switches to red palette, picks new mode, spawns a `DEATH` header, and plays the death synth — used when the player is killed. |
