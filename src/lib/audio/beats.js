@@ -59,8 +59,10 @@ async function evaluatePattern() {
 export async function initBeats() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    // Relative path to node_modules to help Rollup resolution on Cloudflare
-    strudel = await import("../../../node_modules/@strudel/web/dist/index.mjs");
+    // Build the import specifier at runtime so Rollup's static analyzer
+    // never tries to resolve it during the SSR build (browser-only package).
+    const pkg = ["@strudel", "web"].join("/");
+    strudel = await import(/* @vite-ignore */ pkg);
     repl = await strudel.initStrudel();
     // Explicitly init audio (don't rely on mousedown listener timing)
     await strudel.initAudio();
