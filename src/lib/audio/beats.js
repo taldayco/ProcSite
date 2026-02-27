@@ -59,7 +59,8 @@ async function evaluatePattern() {
 export async function initBeats() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    strudel = await import("@strudel/web");
+    // Relative path to node_modules to help Rollup resolution on Cloudflare
+    strudel = await import("../../../node_modules/@strudel/web/dist/index.mjs");
     repl = await strudel.initStrudel();
     // Explicitly init audio (don't rely on mousedown listener timing)
     await strudel.initAudio();

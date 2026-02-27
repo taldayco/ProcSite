@@ -14,20 +14,20 @@ import { transitionDown, resetToKick, playDeathSynth, addLayer } from "$lib/audi
 
 let phase = $state('intro');
 let carryScore = $state(0);
-let clearProgress = 0;
+let clearProgress = $state(0);
 const CLEAR_DURATION = 0.8;
 
 // Kill auto-reset state
-let killHeaderTime = 0;
+let killHeaderTime = $state(0);
 
 // Decoding phase state
-let decodeStartTime = 0;
-let randomizeFired = 0;
-let lastDecodedWord = '';
+let decodeStartTime = $state(0);
+let randomizeFired = $state(0);
+let lastDecodedWord = $state('');
 const RANDOMIZE_COUNT = 5;
 const RANDOMIZE_INTERVAL = 200;
 /** @type {number | null} */
-let decodeWordFadeStartTime = null;
+let decodeWordFadeStartTime = $state(null);
 
 /** @type {HTMLCanvasElement} */
 let canvas;
@@ -47,12 +47,12 @@ let lastDirectionChange = 0;
 let cols = 0, rows = 0, charWidth = 0;
 let cellW = 0, cellH = 0;
 /** @type {number[]} */
-let baseColor = [0, 255, 70];
+let baseColor = $state([0, 255, 70]);
 let fontFamily = 'monospace';
 /** @type {string[]} */
-let colorStrings = [];
+let colorStrings = $state([]);
 /** @type {import('$lib/headers.js').Header[]} */
-let activeHeaders = [];
+let activeHeaders = $state([]);
 
 /** @type {{ name: string, init: Function, update: Function, render: Function }} */
 let currentMode;
