@@ -19,8 +19,14 @@
   let activeMod = $derived(getModifier(decodedWord));
 
   /** @type {import('./game/commands.js').GameState} */
-  let gs = $state(newGameState(decodedWord));
-  gs.score = initialScore;
+  let gs = $state(null);
+  
+  $effect.pre(() => {
+    if (!gs) {
+      gs = newGameState(decodedWord);
+      gs.score = initialScore;
+    }
+  });
 
   /** @type {import('./game/commands.js').HistoryEntry[]} */
   let history = $state([]);
@@ -28,10 +34,10 @@
   let inputText = $state('');
 
   /** @type {HTMLDivElement} */
-  let historyEl;
+  let historyEl = $state(null);
 
   /** @type {HTMLInputElement} */
-  let realInputEl;
+  let realInputEl = $state(null);
 
   /** @type {string[]} */
   let bootLines = $state([]);
