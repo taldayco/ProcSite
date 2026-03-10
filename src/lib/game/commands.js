@@ -53,6 +53,7 @@ export const EntryType = {
  *   _jamTurns: number,
  *   _sniffTraceBlock: boolean,
  *   _freeCrackTurn: boolean,
+ *   _rivalSpikedTargets: number,
  * }} GameState
  */
 
@@ -83,6 +84,7 @@ export function newGameState(word = "") {
     _jamTurns: 0,
     _sniffTraceBlock: false,
     _freeCrackTurn: false,
+    _rivalSpikedTargets: 0,
   };
 }
 
@@ -932,7 +934,7 @@ function cmdSpike(gs, args) {
     },
   ];
 
-  const rivalExtracted = (gs.rival && gs.rival.spikedTargets) || 0;
+  const rivalExtracted = gs._rivalSpikedTargets;
   if (gs.player.spikeCount + rivalExtracted >= targetCount) {
     gs.score += 500;
     gs.won = true;
@@ -992,6 +994,16 @@ function cmdKill(gs) {
   gs.player.data -= 2;
   gs.rival = null;
   gs.player.data += 10;
+
+  const targetCount = gs.mod.targetCount || 3;
+  if (gs.player.spikeCount + gs._rivalSpikedTargets >= targetCount) {
+    gs.score += 500;
+    gs.won = true;
+    return [
+      { text: `>> RIVAL HACKER eliminated! +8 DATA net (${gs.player.data} remaining)`, type: EntryType.Success },
+      { text: "ALL TARGETS ACCOUNTED FOR! [+500 BONUS]", type: EntryType.Success },
+    ];
+  }
 
   return [
     {
@@ -1127,13 +1139,17 @@ function postTurnEffects(gs) {
     entries.push({ text: msg, type: EntryType.Warning });
   }
 
+  if (gs.rival) {
+    gs._rivalSpikedTargets = gs.rival.spikedTargets;
+  }
+
   // Check combined win condition after rival moves:
   // player spikes + rival extractions together account for all targets.
   // This catches the case where the rival completes an extraction while the
   // player already has enough spikes to satisfy the win threshold.
-  if (!gs.won && gs.rival) {
+  if (!gs.won) {
     const targetCount = mod.targetCount || 3;
-    if (gs.player.spikeCount + gs.rival.spikedTargets >= targetCount) {
+    if (gs.player.spikeCount + gs._rivalSpikedTargets >= targetCount) {
       gs.score += 500;
       gs.won = true;
       entries.push({
@@ -1146,10 +1162,10 @@ function postTurnEffects(gs) {
   // Rival extracted more than half of all targets — player loses (condition 2).
   // Threshold is strictly more than half: e.g. >1 of 3, >2 of 4.
   const targetCount = mod.targetCount || 3;
-  if (!gs.won && gs.rival && gs.rival.spikedTargets > targetCount / 2) {
+  if (!gs.won && gs._rivalSpikedTargets > targetCount / 2) {
     gs.lost = true;
     entries.push({
-      text: `>> RIVAL HACKER has spiked ${gs.rival.spikedTargets}/${targetCount} targets. Network compromised.`,
+      text: `>> RIVAL HACKER has spiked ${gs._rivalSpikedTargets}/${targetCount} targets. Network compromised.`,
       type: EntryType.Error,
     });
   }
