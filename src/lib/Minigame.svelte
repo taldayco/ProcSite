@@ -33,6 +33,33 @@
 
   let inputText = $state('');
 
+  /** @type {string[]} */
+  let cmdHistory = $state([]);     // previously submitted command strings
+  let cmdHistoryIdx = $state(-1);  // browse position (-1 = not browsing)
+  let savedInput = $state('');     // stash current input when browsing starts
+
+  let tabPrefix = $state('');      // text when Tab was first pressed
+  let tabMatches = $state([]);     // completion candidates
+  let tabIndex = $state(-1);       // cycle position (-1 = not cycling)
+
+  const ALL_COMMANDS = [
+    'help', 'status', 'map', 'scan', 'hop', 'crack', 'spike', 'extract',
+    'pass', 'cloak', 'kill', 'feed', 'jam', 'bridge', 'sniff', 'relay',
+    'drain', 'overload', 'bypass', 'shatter', 'clear',
+  ];
+  const NODE_ARG_COMMANDS = new Set(['hop', 'crack', 'spike', 'relay', 'bypass', 'bridge']);
+
+  let ghostSuffix = $derived.by(() => {
+    if (!inputText || tabIndex >= 0) return '';
+    const completions = getCompletions(inputText);
+    if (completions.length === 0) return '';
+    const best = completions[0];
+    if (best.toLowerCase().startsWith(inputText.toLowerCase())) {
+      return best.slice(inputText.length);
+    }
+    return '';
+  });
+
   /** @type {HTMLDivElement} */
   let historyEl = $state(null);
 
@@ -79,7 +106,7 @@
     }
     bootHistory.push(
       { text: `Connected to node: ${startNode.name}`, type: EntryType.Info },
-      { text: `DATA: ${gs.player.data} | Type 'help' for commands.`, type: EntryType.Info },
+      { text: `DATA: ${gs.player.data} |  'help' provides available commands.`, type: EntryType.Info },
       { text: '', type: EntryType.System },
     );
     history = bootHistory;
@@ -92,7 +119,19 @@
     if (gs.won || gs.lost) return;
 
     const cmd = inputText;
+    const trimmed = cmd.trim();
+    if (trimmed && trimmed !== cmdHistory[cmdHistory.length - 1]) {
+      cmdHistory = [...cmdHistory, trimmed];
+      if (cmdHistory.length > 50) cmdHistory = cmdHistory.slice(-50);
+    }
+    cmdHistoryIdx = -1;
+    savedInput = '';
     inputText = '';
+
+    if (cmd.trim().toLowerCase() === 'clear') {
+      history = [];
+      return;
+    }
 
     const prevDetection = gs.player.detection;
     const entries = execute(gs, cmd);
@@ -130,6 +169,9 @@
   function playAgain() {
     gs = newGameState(decodedWord);
     history = [];
+    cmdHistory = [];
+    cmdHistoryIdx = -1;
+    savedInput = '';
     bootLines = [];
     booted = false;
     phase = 'connecting';
@@ -140,15 +182,175 @@
     if (phase === 'active') realInputEl?.focus();
   }
 
+  function navigateHistory(direction) {
+    if (cmdHistory.length === 0) return;
+    if (direction === -1) {
+      if (cmdHistoryIdx === -1) {
+        savedInput = inputText;
+        cmdHistoryIdx = cmdHistory.length - 1;
+      } else if (cmdHistoryIdx > 0) {
+        cmdHistoryIdx--;
+      }
+      inputText = cmdHistory[cmdHistoryIdx];
+    } else {
+      if (cmdHistoryIdx === -1) return;
+      if (cmdHistoryIdx < cmdHistory.length - 1) {
+        cmdHistoryIdx++;
+        inputText = cmdHistory[cmdHistoryIdx];
+      } else {
+        cmdHistoryIdx = -1;
+        inputText = savedInput;
+        savedInput = '';
+      }
+    }
+  }
+
+  function getVisibleNodeNames() {
+    if (!gs?.network) return [];
+    return gs.network.nodes.filter(n => n.state !== 0).map(n => n.name);
+  }
+
+  function getCompletions(text) {
+    const trimmed = text.trimStart();
+    if (!trimmed) return ALL_COMMANDS.slice();
+
+    const parts = trimmed.split(/\s+/);
+    const hasTrailingSpace = text.endsWith(' ');
+
+    // Completing command name (no space yet)
+    if (parts.length === 1 && !hasTrailingSpace) {
+      const partial = parts[0].toLowerCase();
+      const matches = ALL_COMMANDS.filter(c => c.startsWith(partial));
+      // destroy_ with trace names
+      if (partial.startsWith('destroy_')) {
+        const tracePart = partial.slice(8).toUpperCase();
+        for (const t of gs.traces) {
+          if (t.name.toUpperCase().startsWith(tracePart))
+            matches.push('destroy_' + t.name);
+        }
+      } else if ('destroy_'.startsWith(partial) && gs.traces.length > 0) {
+        matches.push('destroy_');
+      }
+      return matches;
+    }
+
+    // Completing arguments
+    const cmd = parts[0].toLowerCase();
+    if (!NODE_ARG_COMMANDS.has(cmd)) return [];
+
+    const nodeNames = getVisibleNodeNames();
+
+    if (cmd === 'bridge') {
+      if (parts.length === 2 && !hasTrailingSpace) {
+        const p = parts[1].toUpperCase();
+        return nodeNames.filter(n => n.startsWith(p)).map(n => 'bridge ' + n);
+      } else if ((parts.length === 2 && hasTrailingSpace) || parts.length === 3) {
+        const first = parts[1].toUpperCase();
+        const p = hasTrailingSpace && parts.length === 2 ? '' : (parts[2] || '').toUpperCase();
+        return nodeNames.filter(n => n.startsWith(p) && n !== first)
+          .map(n => 'bridge ' + first + ' ' + n);
+      }
+      return [];
+    }
+
+    // Single-arg commands (hop, crack, spike, relay, bypass)
+    const argPartial = hasTrailingSpace ? '' : (parts[1] || '').toUpperCase();
+    return nodeNames.filter(n => n.startsWith(argPartial)).map(n => cmd + ' ' + n);
+  }
+
+  function resetTabState() {
+    tabPrefix = '';
+    tabMatches = [];
+    tabIndex = -1;
+  }
+
+  function handleTab() {
+    if (tabIndex === -1) {
+      tabPrefix = inputText;
+      tabMatches = getCompletions(inputText);
+      if (tabMatches.length === 0) return;
+      tabIndex = 0;
+    } else {
+      tabIndex = (tabIndex + 1) % tabMatches.length;
+    }
+
+    let completion = tabMatches[tabIndex];
+
+    // Single match: auto-complete, add trailing space if command expects args, reset
+    if (tabMatches.length === 1) {
+      const completedCmd = completion.split(/\s+/)[0].toLowerCase();
+      const argCount = completion.split(/\s+/).length - 1;
+      if (NODE_ARG_COMMANDS.has(completedCmd)) {
+        if (completedCmd === 'bridge' && argCount < 2) completion += ' ';
+        else if (completedCmd !== 'bridge' && argCount === 0) completion += ' ';
+      }
+      inputText = completion;
+      resetTabState();
+      return;
+    }
+
+    inputText = completion;
+  }
+
   /** @param {KeyboardEvent} e */
   function handleInputKeydown(e) {
     e.stopPropagation();
+
+    if (e.ctrlKey && e.key === 'c') {
+      e.preventDefault();
+      if (inputText) {
+        history = [...history, { text: '> ' + inputText + '^C', type: EntryType.Input }];
+        inputText = '';
+        resetTabState();
+        cmdHistoryIdx = -1;
+      }
+      return;
+    }
+
+    if (e.ctrlKey && e.key === 'l') {
+      e.preventDefault();
+      history = [];
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      playKeystroke();
+      handleTab();
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      resetTabState();
+      navigateHistory(-1);
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      resetTabState();
+      navigateHistory(1);
+      return;
+    }
+
     if (e.key === 'Enter') {
+      resetTabState();
       playSubmit();
       submitCommand();
-    } else if (e.key === 'Backspace') {
+      return;
+    }
+
+    if (e.key === 'Backspace') {
+      resetTabState();
+      cmdHistoryIdx = -1;
       playBackspace();
-    } else if (e.key.length === 1) {
+      return;
+    }
+
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      resetTabState();
+      cmdHistoryIdx = -1;
       playKeystroke();
     }
   }
@@ -241,7 +443,7 @@
         <div class="input-line" style="border-top-color: {colorDim};">
           <span class="prompt" style="color: {colorRgb};">&gt;&nbsp;</span>
           <span class="input-display" style="color: {colorRgb};">
-            {inputText}<span class="cursor" style="background: {colorRgb};">&#8203;</span>
+            {inputText}<span class="ghost-text" style="color: {colorDim};">{ghostSuffix}</span><span class="cursor" style="background: {colorRgb};">&#8203;</span>
           </span>
           <input
             bind:this={realInputEl}
@@ -386,6 +588,11 @@
     font-family: monospace;
     font-size: 14px;
     white-space: pre;
+  }
+
+  .ghost-text {
+    pointer-events: none;
+    user-select: none;
   }
 
   .hidden-input {

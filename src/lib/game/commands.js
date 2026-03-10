@@ -285,6 +285,7 @@ function cmdHelp(gs) {
     `  cloak  - Reduce detection for 3 turns (${cloakCost * cm} DATA)`,
     "  kill   - Eliminate rival hacker at your node (2 DATA)",
     "  destroy_<tracer> - Destroy a tracer program (from a cracked Turret node)",
+    "  clear  - Clear terminal display",
     "  sudo rm -rf user - undefined",
   ].map((text) => ({ text, type: EntryType.Info }));
 
