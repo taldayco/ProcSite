@@ -1,6 +1,6 @@
 # ProcSite - Written for the Crimson Code Hackathon
 
-Tanks to Switch Angel for providing the strudel guidance with the prebake, and Nodayshalleraseyou for coming up with DDS.
+Thanks to Switch Angel for providing the strudel guidance with the prebake, and Nodayshalleraseyou for coming up with DDS.
 
 Website: https://procsite.thomasconrod.workers.dev/
 
